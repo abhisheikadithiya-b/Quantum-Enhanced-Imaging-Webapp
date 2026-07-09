@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Base -->
+  <path d="M20 85h60" stroke-width="7" />
+  <path d="M35 85V75h30V85" />
+  
+  <!-- Pillar & Stage -->
+  <path d="M50 75V55" />
+  <path d="M25 55h40" stroke-width="6" />
+  
+  <!-- Curved Arm -->
+  <path d="M60 75c12-10 12-32 2-42" />
+  
+  <!-- Adjustment Knob -->
+  <circle cx="61" cy="58" r="5" fill="currentColor" />
+  
+  <!-- Body Tube (Diagonal) -->
+  <path d="M35 25l25 25" stroke-width="8" />
+  
+  <!-- Eyepiece -->
+  <path d="M30 20l8 8" stroke-width="10" />
+  <path d="M26 16l8 8" />
+  
+  <!-- Objective Lenses -->
+  <path d="M53 47l-6 10" stroke-width="6" />
+  <path d="M58 52l-2 12" stroke-width="4" />
+</svg>
