@@ -1047,7 +1047,7 @@ export default function DoctorDashboard({
         {!showTransferForm && !showRegisterForm && activePatient && (
           <>
             {/* Patient Header & Metadata Card */}
-            <div className="bg-card border border-border rounded-xl p-5 shadow-sm space-y-4">
+            <div key={activePatient.id} className="bg-card border border-border rounded-xl p-5 shadow-sm space-y-4 animate-scale-in">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                   <h2 className="text-xl font-bold tracking-tight text-foreground flex items-center gap-2">
@@ -1253,7 +1253,7 @@ export default function DoctorDashboard({
             {/* Side-by-Side MRI Visualizer with slider */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               {/* MRI Viewer Box */}
-              <div className="bg-card border border-border rounded-xl p-5 shadow-sm space-y-4">
+              <div key={selectedScanId} className="bg-card border border-border rounded-xl p-5 shadow-sm space-y-4 animate-scale-in">
                 <div className="flex justify-between items-center">
                   <h4 className="text-sm font-bold text-foreground flex items-center gap-1.5">
                     <Layers className="w-4 h-4 text-primary" />
@@ -1341,7 +1341,7 @@ export default function DoctorDashboard({
               </div>
 
               {/* Actionable Report Card & Save */}
-              <div className="bg-card border border-border rounded-xl p-5 shadow-sm space-y-4">
+              <div key={selectedScanId + '-attest'} className="bg-card border border-border rounded-xl p-5 shadow-sm space-y-4 animate-scale-in">
                 <h4 className="text-sm font-bold text-foreground flex items-center gap-1.5">
                   <FileText className="w-4 h-4 text-primary" />
                   Attending Attestation Report
