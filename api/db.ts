@@ -1,4 +1,4 @@
-import { MongoClient, Db } from 'mongodb'
+import admin from 'firebase-admin'
 
 const INITIAL_PATIENTS = [
   {
@@ -187,49 +187,65 @@ interface MemoryDb {
 }
 
 let memoryDb: MemoryDb | null = null
+let hasSeeded = false
 
-let cachedClient: MongoClient | null = null
-let cachedDb: Db | null = null
+export async function connectToDatabase(): Promise<{ db: admin.firestore.Firestore | null; isFallback: boolean }> {
+  const serviceAccountVar = process.env.FIREBASE_SERVICE_ACCOUNT
 
-export async function connectToDatabase(): Promise<{ client: MongoClient | null; db: Db | null; isFallback: boolean }> {
-  const uri = process.env.MONGODB_URI
-
-  if (!uri) {
+  if (!serviceAccountVar) {
     if (!memoryDb) {
       memoryDb = {
         doctors: INITIAL_DOCTORS,
         patients: INITIAL_PATIENTS
       }
     }
-    return { client: null, db: null, isFallback: true }
+    return { db: null, isFallback: true }
   }
 
-  if (cachedClient && cachedDb) {
-    return { client: cachedClient, db: cachedDb, isFallback: false }
+  // Initialize Firebase Admin
+  if (admin.apps.length === 0) {
+    try {
+      const serviceAccount = JSON.parse(serviceAccountVar)
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
+      })
+    } catch (e) {
+      console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT env var. Falling back to memory.', e)
+      if (!memoryDb) {
+        memoryDb = {
+          doctors: INITIAL_DOCTORS,
+          patients: INITIAL_PATIENTS
+        }
+      }
+      return { db: null, isFallback: true }
+    }
   }
 
-  const client = new MongoClient(uri)
-  await client.connect()
-  const db = client.db('quantascan')
+  const db = admin.firestore()
 
-  cachedClient = client
-  cachedDb = db
+  // Seed Firebase collections once per serverless instance startup if collections are empty
+  if (!hasSeeded) {
+    hasSeeded = true
+    try {
+      const docSnap = await db.collection('doctors').limit(1).get()
+      if (docSnap.empty) {
+        for (const doc of INITIAL_DOCTORS) {
+          await db.collection('doctors').doc(doc.id).set(doc)
+        }
+      }
 
-  // Seed databases if they are empty
-  const docColl = db.collection('doctors')
-  const patColl = db.collection('patients')
-
-  const docCount = await docColl.countDocuments()
-  if (docCount === 0) {
-    await docColl.insertMany(INITIAL_DOCTORS)
+      const patSnap = await db.collection('patients').limit(1).get()
+      if (patSnap.empty) {
+        for (const pat of INITIAL_PATIENTS) {
+          await db.collection('patients').doc(pat.id).set(pat)
+        }
+      }
+    } catch (err) {
+      console.error('Failed database seeding:', err)
+    }
   }
 
-  const patCount = await patColl.countDocuments()
-  if (patCount === 0) {
-    await patColl.insertMany(INITIAL_PATIENTS)
-  }
-
-  return { client, db, isFallback: false }
+  return { db, isFallback: false }
 }
 
 export function getMemoryDb(): MemoryDb {

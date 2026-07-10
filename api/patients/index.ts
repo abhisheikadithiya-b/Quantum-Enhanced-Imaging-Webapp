@@ -29,8 +29,9 @@ export default async function handler(req: any, res: any) {
           const { password: _, ...patientWithoutPassword } = patient
           return res.status(200).json(patientWithoutPassword)
         } else {
-          const patient = await db!.collection('patients').findOne({ id: targetId })
-          if (!patient) return res.status(404).json({ error: 'Patient not found' })
+          const docSnap = await db!.collection('patients').doc(targetId).get()
+          if (!docSnap.exists) return res.status(404).json({ error: 'Patient not found' })
+          const patient = docSnap.data()!
           const { password: _, ...patientWithoutPassword } = patient
           return res.status(200).json(patientWithoutPassword)
         }
@@ -45,8 +46,9 @@ export default async function handler(req: any, res: any) {
           const { password: _, ...patientWithoutPassword } = patient
           return res.status(200).json(patientWithoutPassword)
         } else {
-          const patient = await db!.collection('patients').findOne({ id })
-          if (!patient) return res.status(404).json({ error: 'Patient not found' })
+          const docSnap = await db!.collection('patients').doc(id as string).get()
+          if (!docSnap.exists) return res.status(404).json({ error: 'Patient not found' })
+          const patient = docSnap.data()!
           const { password: _, ...patientWithoutPassword } = patient
           return res.status(200).json(patientWithoutPassword)
         }
@@ -61,13 +63,18 @@ export default async function handler(req: any, res: any) {
         const safeList = list.map(({ password: _, ...rest }) => rest)
         return res.status(200).json(safeList)
       } else {
-        let query = {}
+        let collRef: admin.firestore.Query = db!.collection('patients')
         if (doctor) {
-          query = { "doctor.name": { $regex: new RegExp(`^${doctor}$`, 'i') } }
+          collRef = collRef.where('doctor.name', '==', doctor)
         }
-        const list = await db!.collection('patients').find(query).toArray()
-        const safeList = list.map(({ password: _, ...rest }) => rest)
-        return res.status(200).json(safeList)
+        const snap = await collRef.get()
+        const list: any[] = []
+        snap.forEach(doc => {
+          const data = doc.data()
+          const { password: _, ...safeData } = data
+          list.push(safeData)
+        })
+        return res.status(200).json(list)
       }
     }
 
@@ -78,8 +85,8 @@ export default async function handler(req: any, res: any) {
 
     if (method === 'POST') {
       const patientData = req.body
-      if (!patientData.name) {
-        return res.status(400).json({ error: 'Patient name is required' })
+      if (!patientData.name || !patientData.id) {
+        return res.status(400).json({ error: 'Patient ID and Name are required' })
       }
 
       const pass = patientData.password || 'password'
@@ -94,7 +101,7 @@ export default async function handler(req: any, res: any) {
         const { password: _, ...safeDoc } = securedPatient
         return res.status(201).json(safeDoc)
       } else {
-        await db!.collection('patients').insertOne(securedPatient)
+        await db!.collection('patients').doc(securedPatient.id).set(securedPatient)
         const { password: _, ...safeDoc } = securedPatient
         return res.status(201).json(safeDoc)
       }
@@ -106,7 +113,7 @@ export default async function handler(req: any, res: any) {
         return res.status(400).json({ error: 'Patient ID is required for update' })
       }
 
-      const { _id, ...cleanData } = patientData
+      const { ...cleanData } = patientData
 
       if (cleanData.password) {
         if (!cleanData.password.includes(':')) {
@@ -122,12 +129,10 @@ export default async function handler(req: any, res: any) {
         const { password: _, ...safeDoc } = memoryDb.patients[index]
         return res.status(200).json(safeDoc)
       } else {
-        await db!.collection('patients').updateOne(
-          { id: cleanData.id },
-          { $set: cleanData }
-        )
-        const updatedDoc = await db!.collection('patients').findOne({ id: cleanData.id })
-        if (!updatedDoc) return res.status(404).json({ error: 'Patient not found' })
+        await db!.collection('patients').doc(cleanData.id).update(cleanData)
+        const docSnap = await db!.collection('patients').doc(cleanData.id).get()
+        if (!docSnap.exists) return res.status(404).json({ error: 'Patient not found' })
+        const updatedDoc = docSnap.data()!
         const { password: _, ...safeDoc } = updatedDoc
         return res.status(200).json(safeDoc)
       }

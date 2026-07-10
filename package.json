@@ -11,8 +11,8 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.2",
+    "firebase-admin": "^14.1.0",
     "lucide-react": "^1.23.0",
-    "mongodb": "^7.5.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "tailwindcss": "^4.3.2"

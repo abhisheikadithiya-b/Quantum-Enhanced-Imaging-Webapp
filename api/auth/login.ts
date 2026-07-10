@@ -23,7 +23,10 @@ export default async function handler(req: any, res: any) {
         const memoryDb = getMemoryDb()
         matchedUser = memoryDb.doctors.find(d => d.id.toUpperCase() === cleanId)
       } else {
-        matchedUser = await db!.collection('doctors').findOne({ id: { $regex: new RegExp(`^${cleanId}$`, 'i') } })
+        const docSnap = await db!.collection('doctors').doc(cleanId).get()
+        if (docSnap.exists) {
+          matchedUser = docSnap.data()
+        }
       }
 
       if (matchedUser && verifyPassword(password, matchedUser.password)) {
@@ -39,7 +42,10 @@ export default async function handler(req: any, res: any) {
         const memoryDb = getMemoryDb()
         matchedUser = memoryDb.patients.find(p => p.id.toUpperCase() === cleanId)
       } else {
-        matchedUser = await db!.collection('patients').findOne({ id: { $regex: new RegExp(`^${cleanId}$`, 'i') } })
+        const docSnap = await db!.collection('patients').doc(cleanId).get()
+        if (docSnap.exists) {
+          matchedUser = docSnap.data()
+        }
       }
 
       if (matchedUser) {

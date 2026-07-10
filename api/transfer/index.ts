@@ -39,23 +39,21 @@ export default async function handler(req: any, res: any) {
       const { password: _, ...safeDoc } = patient
       return res.status(200).json({ success: true, patient: safeDoc })
     } else {
-      const patient = await db!.collection('patients').findOne({ id: { $regex: new RegExp(`^${cleanPatientId}$`, 'i') } })
-      if (!patient) {
+      const docRef = db!.collection('patients').doc(cleanPatientId)
+      const docSnap = await docRef.get()
+      if (!docSnap.exists) {
         return res.status(400).json({ error: 'Patient case not found in registry.' })
       }
 
+      const patient = docSnap.data()!
       const correctPassword = patient.password || 'password'
       if (!verifyPassword(patientPassword, correctPassword)) {
         return res.status(400).json({ error: 'Authentication failed: Invalid password.' })
       }
 
-      await db!.collection('patients').updateOne(
-        { id: patient.id },
-        { $set: { doctor: newDoctor } }
-      )
-
-      const updatedPatient = await db!.collection('patients').findOne({ id: patient.id })
-      if (!updatedPatient) return res.status(404).json({ error: 'Patient not found' })
+      await docRef.update({ doctor: newDoctor })
+      const updatedSnap = await docRef.get()
+      const updatedPatient = updatedSnap.data()!
       const { password: _, ...safeDoc } = updatedPatient
       return res.status(200).json({ success: true, patient: safeDoc })
     }

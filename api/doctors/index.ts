@@ -18,7 +18,11 @@ export default async function handler(req: any, res: any) {
         const memoryDb = getMemoryDb()
         return res.status(200).json(memoryDb.doctors)
       } else {
-        const list = await db!.collection('doctors').find({}).toArray()
+        const snap = await db!.collection('doctors').get()
+        const list: any[] = []
+        snap.forEach(doc => {
+          list.push(doc.data())
+        })
         return res.status(200).json(list)
       }
     }
@@ -43,11 +47,12 @@ export default async function handler(req: any, res: any) {
         memoryDb.doctors.push(securedDoc)
         return res.status(201).json(securedDoc)
       } else {
-        const exists = await db!.collection('doctors').findOne({ id: securedDoc.id })
-        if (exists) {
+        const docRef = db!.collection('doctors').doc(securedDoc.id)
+        const docSnap = await docRef.get()
+        if (docSnap.exists) {
           return res.status(400).json({ error: 'Doctor with this License ID already exists' })
         }
-        await db!.collection('doctors').insertOne(securedDoc)
+        await docRef.set(securedDoc)
         return res.status(201).json(securedDoc)
       }
     }
@@ -58,7 +63,7 @@ export default async function handler(req: any, res: any) {
         return res.status(400).json({ error: 'Doctor ID is required for update' })
       }
 
-      const { _id, ...cleanData } = doctorData
+      const { ...cleanData } = doctorData
       
       // Hash password if the admin modified it
       if (cleanData.password) {
@@ -74,12 +79,9 @@ export default async function handler(req: any, res: any) {
         memoryDb.doctors[index] = { ...memoryDb.doctors[index], ...cleanData }
         return res.status(200).json(memoryDb.doctors[index])
       } else {
-        await db!.collection('doctors').updateOne(
-          { id: cleanData.id },
-          { $set: cleanData }
-        )
-        const updatedDoc = await db!.collection('doctors').findOne({ id: cleanData.id })
-        return res.status(200).json(updatedDoc)
+        await db!.collection('doctors').doc(cleanData.id).update(cleanData)
+        const docSnap = await db!.collection('doctors').doc(cleanData.id).get()
+        return res.status(200).json(docSnap.data())
       }
     }
 
@@ -96,10 +98,12 @@ export default async function handler(req: any, res: any) {
         memoryDb.doctors.splice(index, 1)
         return res.status(200).json({ success: true })
       } else {
-        const result = await db!.collection('doctors').deleteOne({ id })
-        if (result.deletedCount === 0) {
+        const docRef = db!.collection('doctors').doc(id as string)
+        const docSnap = await docRef.get()
+        if (!docSnap.exists) {
           return res.status(404).json({ error: 'Doctor not found' })
         }
+        await docRef.delete()
         return res.status(200).json({ success: true })
       }
     }
