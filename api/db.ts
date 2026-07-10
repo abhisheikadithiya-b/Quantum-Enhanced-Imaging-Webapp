@@ -185,6 +185,7 @@ const INITIAL_DOCTORS = [
 interface MemoryDb {
   doctors: any[];
   patients: any[];
+  auditLogs: any[];
 }
 
 let memoryDb: MemoryDb | null = null
@@ -197,7 +198,8 @@ export async function connectToDatabase(): Promise<{ db: Firestore | null; isFal
     if (!memoryDb) {
       memoryDb = {
         doctors: INITIAL_DOCTORS,
-        patients: INITIAL_PATIENTS
+        patients: INITIAL_PATIENTS,
+        auditLogs: []
       }
     }
     return { db: null, isFallback: true }
@@ -253,7 +255,8 @@ export function getMemoryDb(): MemoryDb {
   if (!memoryDb) {
     memoryDb = {
       doctors: INITIAL_DOCTORS,
-      patients: INITIAL_PATIENTS
+      patients: INITIAL_PATIENTS,
+      auditLogs: []
     }
   }
   return memoryDb

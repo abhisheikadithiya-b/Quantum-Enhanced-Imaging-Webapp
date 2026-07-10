@@ -128,6 +128,15 @@ export default function DoctorDashboard({
   const [mriOverlayOpacity, setMriOverlayOpacity] = useState(50)
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null)
   
+  // Multi-Planar Reconstruction (MPR) slice indices
+  const [axialSlice, setAxialSlice] = useState(42)
+  const [coronalSlice, setCoronalSlice] = useState(38)
+  const [sagittalSlice, setSagittalSlice] = useState(50)
+  
+  // Attestation Signatures states
+  const [attested, setAttested] = useState(false)
+  const [signaturePin, setSignaturePin] = useState('')
+  
   // Doctor reports input fields
   const [doctorComments, setDoctorComments] = useState('')
   const [customPrediction, setCustomPrediction] = useState('No Abnormalities Detected')
@@ -410,30 +419,79 @@ export default function DoctorDashboard({
   const handleImageClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (isProcessing) return
     const rect = e.currentTarget.getBoundingClientRect()
-    const x = ((e.clientX - rect.left) / rect.width) * 100
-    const y = ((e.clientY - rect.top) / rect.height) * 100
-    
-    const posX = Math.round(x)
-    const posY = Math.round(y)
+    const x = Math.round(((e.clientX - rect.left) / rect.width) * 100)
+    const y = Math.round(((e.clientY - rect.top) / rect.height) * 100)
     
     setActiveScanParams(prev => ({
       ...prev,
-      tumorX: posX,
-      tumorY: posY,
+      tumorX: x,
+      tumorY: y,
       tumorR: prev.tumorR || 12,
       prediction: 'Tumor Detected',
       confidence: '97.4%',
-      region: posX < 50 ? (posY < 50 ? 'Left Frontal Lobe' : 'Left Occipital Lobe') : (posY < 50 ? 'Right Frontal Lobe' : 'Right Occipital Lobe')
+      region: x < 50 ? (y < 50 ? 'Left Frontal Lobe' : 'Left Occipital Lobe') : (y < 50 ? 'Right Frontal Lobe' : 'Right Occipital Lobe')
     }))
     
     setCustomPrediction('Tumor Detected')
     setCustomConfidence('97.4%')
-    setCustomRegion(posX < 50 ? (posY < 50 ? 'Left Frontal Lobe' : 'Left Occipital Lobe') : (posY < 50 ? 'Right Frontal Lobe' : 'Right Occipital Lobe'))
+    setCustomRegion(x < 50 ? (y < 50 ? 'Left Frontal Lobe' : 'Left Occipital Lobe') : (y < 50 ? 'Right Frontal Lobe' : 'Right Occipital Lobe'))
+  }
+
+  const handleCoronalClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (isProcessing) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = Math.round(((e.clientX - rect.left) / rect.width) * 100)
+    const z = Math.round(((e.clientY - rect.top) / rect.height) * 100)
+    
+    setCoronalSlice(z)
+    setActiveScanParams(prev => ({
+      ...prev,
+      tumorX: x,
+      tumorR: prev.tumorR || 12,
+      prediction: 'Tumor Detected',
+      confidence: '97.4%',
+      region: x < 50 ? (prev.tumorY < 50 ? 'Left Frontal Lobe' : 'Left Occipital Lobe') : (prev.tumorY < 50 ? 'Right Frontal Lobe' : 'Right Occipital Lobe')
+    }))
+    
+    setCustomPrediction('Tumor Detected')
+    setCustomConfidence('97.4%')
+    setCustomRegion(x < 50 ? (activeScanParams.tumorY < 50 ? 'Left Frontal Lobe' : 'Left Occipital Lobe') : (activeScanParams.tumorY < 50 ? 'Right Frontal Lobe' : 'Right Occipital Lobe'))
+  }
+
+  const handleSagittalClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (isProcessing) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    const y = Math.round(((e.clientX - rect.left) / rect.width) * 100)
+    const z = Math.round(((e.clientY - rect.top) / rect.height) * 100)
+    
+    setSagittalSlice(z)
+    setActiveScanParams(prev => ({
+      ...prev,
+      tumorY: y,
+      tumorR: prev.tumorR || 12,
+      prediction: 'Tumor Detected',
+      confidence: '97.4%',
+      region: prev.tumorX < 50 ? (y < 50 ? 'Left Frontal Lobe' : 'Left Occipital Lobe') : (y < 50 ? 'Right Frontal Lobe' : 'Right Occipital Lobe')
+    }))
+    
+    setCustomPrediction('Tumor Detected')
+    setCustomConfidence('97.4%')
+    setCustomRegion(activeScanParams.tumorX < 50 ? (y < 50 ? 'Left Frontal Lobe' : 'Left Occipital Lobe') : (y < 50 ? 'Right Frontal Lobe' : 'Right Occipital Lobe'))
   }
 
   // Commit scan reports to patient
-  const saveScanToPatient = () => {
+  const saveScanToPatient = async () => {
     if (!activePatient) return
+    
+    if (!attested) {
+      alert('You must attest to reviewing these MRI slices before saving this diagnostic record.')
+      return
+    }
+    
+    if (!signaturePin.trim()) {
+      alert('Please enter your Attending Doctor Digital Signature / PIN.')
+      return
+    }
 
     const newScanId = `SCN-${Math.floor(100 + Math.random() * 900)}`
     const newScan: Scan = {
@@ -451,6 +509,25 @@ export default function DoctorDashboard({
       bodyPart: customBodyPart
     }
 
+    // Save secure log entry to backend audit trail
+    try {
+      await fetch('/api/audit-logs', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          action: 'COMMIT_DIAGNOSTIC_REPORT',
+          patientId: activePatient.id,
+          signatureName: signaturePin,
+          details: `Doctor validated scan report ${newScanId} containing ${customPrediction} at coordinates (${activeScanParams.tumorX}, ${activeScanParams.tumorY}).`
+        })
+      })
+    } catch (e) {
+      console.error('Audit trail logging failed:', e)
+    }
+
     const updatedPatient: Patient = {
       ...activePatient,
       status: customPrediction.includes('Detected') ? 'In Treatment' : 'Stable',
@@ -459,7 +536,12 @@ export default function DoctorDashboard({
 
     onUpdatePatient(updatedPatient)
     setSelectedScanId(newScanId)
-    alert(`Successfully compiled report ${newScanId} and appended it to patient ${activePatient.name}'s history!`)
+    
+    // Reset attestation
+    setAttested(false)
+    setSignaturePin('')
+    
+    alert(`Successfully compiled report ${newScanId} and appended it to patient ${activePatient.name}'s history! Audit trail logged.`)
   }
 
   const handleAddRx = (e: React.FormEvent) => {
@@ -1285,92 +1367,194 @@ export default function DoctorDashboard({
               </div>
             </div>
 
-            {/* Side-by-Side MRI Visualizer with slider */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* MRI Viewer Box */}
-              <div key={selectedScanId} className="bg-card border border-border rounded-xl p-5 shadow-sm space-y-4 animate-scale-in">
-                <div className="flex justify-between items-center">
-                  <h4 className="text-sm font-bold text-foreground flex items-center gap-1.5">
-                    <Layers className="w-4 h-4 text-primary" />
-                    Grad-CAM Overlay Viewer
-                  </h4>
-                  <div className="text-xs text-muted-foreground">
-                    Opacity: {mriOverlayOpacity}%
+            {/* 3D Multi-Planar Reconstruction Viewer (MPR Console) */}
+            <div className="grid grid-cols-1 gap-6">
+              {/* MPR Viewer Box */}
+              <div key={selectedScanId} className="bg-card border border-border rounded-xl p-5 shadow-sm space-y-4 animate-scale-in col-span-full">
+                <div className="flex justify-between items-center border-b border-border/40 pb-3">
+                  <div>
+                    <h4 className="text-sm font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wider">
+                      <Layers className="w-4.5 h-4.5 text-primary" />
+                      3D Multi-Planar Reconstruction (MPR) Console
+                    </h4>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Click inside panels to target coordinates. Slices sync dynamically.</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[10px] text-muted-foreground font-semibold">Overlay Opacity:</span>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={mriOverlayOpacity}
+                      onChange={(e) => setMriOverlayOpacity(parseInt(e.target.value))}
+                      className="w-24 h-1 bg-muted rounded appearance-none cursor-pointer accent-primary"
+                    />
+                    <span className="text-[10px] font-mono font-semibold text-primary">{mriOverlayOpacity}%</span>
                   </div>
                 </div>
 
-                <div 
-                  onClick={handleImageClick}
-                  className="relative aspect-square w-full bg-[#030303] rounded-lg border border-border overflow-hidden flex items-center justify-center cursor-crosshair"
-                >
-                  {/* Real Brain Scan MRI Background Image */}
-                  <img
-                    src={currentScanImage || '/brain_scan.png'}
-                    alt="Attending Brain MRI Slice"
-                    className="absolute inset-0 w-full h-full object-cover opacity-80"
-                  />
-
-                  {/* High-Fidelity Clinical Coordinates Grid Overlay */}
-                  <svg className="absolute inset-0 w-full h-full text-primary/20 pointer-events-none" viewBox="0 0 100 100">
-                    {/* Concentric grid rings */}
-                    <circle cx="50" cy="50" r="42" fill="none" stroke="currentColor" strokeWidth="0.15" strokeDasharray="1,1" />
-                    <circle cx="50" cy="50" r="28" fill="none" stroke="currentColor" strokeWidth="0.15" strokeDasharray="1,1" />
-                    <circle cx="50" cy="50" r="14" fill="none" stroke="currentColor" strokeWidth="0.15" strokeDasharray="1,1" />
-                    {/* Grid axes */}
-                    <line x1="50" y1="5" x2="50" y2="95" stroke="currentColor" strokeWidth="0.15" strokeDasharray="1,1" />
-                    <line x1="5" y1="50" x2="95" y2="50" stroke="currentColor" strokeWidth="0.15" strokeDasharray="1,1" />
-                  </svg>
-
-                  {activeScanParams.tumorX > 0 && (
-                    <div
-                      style={{
-                        position: 'absolute',
-                        left: `${activeScanParams.tumorX}%`,
-                        top: `${activeScanParams.tumorY}%`,
-                        transform: 'translate(-50%, -50%)',
-                        width: `${activeScanParams.tumorR * 4}%`,
-                        height: `${activeScanParams.tumorR * 4}%`,
-                        borderRadius: '50%',
-                        background: 'radial-gradient(circle, rgba(239,68,68,0.85) 0%, rgba(245,158,11,0.6) 40%, rgba(56,189,248,0) 70%)',
-                        opacity: mriOverlayOpacity / 100,
-                        transition: 'opacity 0.2s ease',
-                        pointerEvents: 'none'
-                      }}
-                      className="quanta-heat-overlay"
-                    />
-                  )}
-
-                  {activeScanParams.tumorX > 0 && mriOverlayOpacity > 10 && (
-                    <div
-                      style={{
-                        position: 'absolute',
-                        left: `${activeScanParams.tumorX}%`,
-                        top: `${activeScanParams.tumorY}%`
-                      }}
-                      className="w-6 h-6 border border-red-500/80 border-dashed rounded-full -translate-x-1/2 -translate-y-1/2 flex items-center justify-center"
-                    >
-                      <div className="w-1 h-1 bg-red-500 rounded-full" />
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                  {/* Panel 1: Axial Plane */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                      <span>1. Axial Plane (Z-Axis)</span>
+                      <span className="font-mono text-primary">Slice {axialSlice}/80</span>
                     </div>
-                  )}
+                    <div 
+                      onClick={handleImageClick}
+                      className="relative aspect-square w-full bg-[#030303] rounded-lg border border-border overflow-hidden flex items-center justify-center cursor-crosshair"
+                    >
+                      <img
+                        src={currentScanImage || '/brain_scan.png'}
+                        alt="Axial MRI Slice"
+                        className="absolute inset-0 w-full h-full object-cover opacity-80"
+                      />
+                      <svg className="absolute inset-0 w-full h-full text-primary/10 pointer-events-none" viewBox="0 0 100 100">
+                        <circle cx="50" cy="50" r="42" fill="none" stroke="currentColor" strokeWidth="0.1" strokeDasharray="1,2" />
+                        <line x1="50" y1="5" x2="50" y2="95" stroke="currentColor" strokeWidth="0.1" strokeDasharray="1,2" />
+                        <line x1="5" y1="50" x2="95" y2="50" stroke="currentColor" strokeWidth="0.1" strokeDasharray="1,2" />
+                      </svg>
 
-                  {isProcessing && (
-                    <div className="absolute left-0 w-full h-0.5 bg-primary/60 scan-line shadow-[0_0_10px_#0ea5e9]" />
-                  )}
-                </div>
+                      {/* Dynamic Crosshairs */}
+                      {activeScanParams.tumorX > 0 && (
+                        <>
+                          <div style={{ left: `${activeScanParams.tumorX}%` }} className="absolute top-0 bottom-0 w-px border-l border-red-500/40 border-dashed pointer-events-none" />
+                          <div style={{ top: `${activeScanParams.tumorY}%` }} className="absolute left-0 right-0 h-px border-t border-red-500/40 border-dashed pointer-events-none" />
+                          <div
+                            style={{
+                              position: 'absolute',
+                              left: `${activeScanParams.tumorX}%`,
+                              top: `${activeScanParams.tumorY}%`,
+                              transform: 'translate(-50%, -50%)',
+                              width: `${activeScanParams.tumorR * 4}%`,
+                              height: `${activeScanParams.tumorR * 4}%`,
+                              borderRadius: '50%',
+                              background: 'radial-gradient(circle, rgba(239,68,68,0.85) 0%, rgba(245,158,11,0.6) 40%, rgba(56,189,248,0) 70%)',
+                              opacity: mriOverlayOpacity / 100,
+                              pointerEvents: 'none'
+                            }}
+                          />
+                        </>
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <input
+                        type="range"
+                        min="1"
+                        max="80"
+                        value={axialSlice}
+                        onChange={(e) => setAxialSlice(parseInt(e.target.value))}
+                        className="w-full h-1.5 bg-muted rounded appearance-none cursor-pointer accent-primary"
+                      />
+                    </div>
+                  </div>
 
-                <div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={mriOverlayOpacity}
-                    onChange={(e) => setMriOverlayOpacity(parseInt(e.target.value))}
-                    className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                  />
-                  <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
-                    <span>Original MRI (0%)</span>
-                    <span>Composite Blending</span>
-                    <span>Heatmap Saliency (100%)</span>
+                  {/* Panel 2: Coronal Plane */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                      <span>2. Coronal Plane (Y-Axis)</span>
+                      <span className="font-mono text-primary">Slice {coronalSlice}/80</span>
+                    </div>
+                    <div 
+                      onClick={handleCoronalClick}
+                      className="relative aspect-square w-full bg-[#030303] rounded-lg border border-border overflow-hidden flex items-center justify-center cursor-crosshair"
+                    >
+                      <img
+                        src="/brain_scan.png"
+                        alt="Coronal MRI Slice"
+                        className="absolute inset-0 w-full h-full object-cover opacity-60 filter hue-rotate-15"
+                      />
+                      <svg className="absolute inset-0 w-full h-full text-primary/10 pointer-events-none" viewBox="0 0 100 100">
+                        <line x1="50" y1="5" x2="50" y2="95" stroke="currentColor" strokeWidth="0.1" strokeDasharray="1,2" />
+                        <line x1="5" y1="50" x2="95" y2="50" stroke="currentColor" strokeWidth="0.1" strokeDasharray="1,2" />
+                      </svg>
+
+                      {/* Dynamic Crosshairs linked to tumorX and coronalSlice */}
+                      {activeScanParams.tumorX > 0 && (
+                        <>
+                          <div style={{ left: `${activeScanParams.tumorX}%` }} className="absolute top-0 bottom-0 w-px border-l border-cyan-500/40 border-dashed pointer-events-none" />
+                          <div style={{ top: `${coronalSlice}%` }} className="absolute left-0 right-0 h-px border-t border-cyan-500/40 border-dashed pointer-events-none" />
+                          <div
+                            style={{
+                              position: 'absolute',
+                              left: `${activeScanParams.tumorX}%`,
+                              top: `${coronalSlice}%`,
+                              transform: 'translate(-50%, -50%)',
+                              width: `10%`,
+                              height: `10%`,
+                              borderRadius: '50%',
+                              background: 'radial-gradient(circle, rgba(6,182,212,0.8) 0%, rgba(6,182,212,0) 70%)',
+                              opacity: mriOverlayOpacity / 100,
+                              pointerEvents: 'none'
+                            }}
+                          />
+                        </>
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <input
+                        type="range"
+                        min="1"
+                        max="80"
+                        value={coronalSlice}
+                        onChange={(e) => setCoronalSlice(parseInt(e.target.value))}
+                        className="w-full h-1.5 bg-muted rounded appearance-none cursor-pointer accent-primary"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Panel 3: Sagittal Plane */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                      <span>3. Sagittal Plane (X-Axis)</span>
+                      <span className="font-mono text-primary">Slice {sagittalSlice}/80</span>
+                    </div>
+                    <div 
+                      onClick={handleSagittalClick}
+                      className="relative aspect-square w-full bg-[#030303] rounded-lg border border-border overflow-hidden flex items-center justify-center cursor-crosshair"
+                    >
+                      <img
+                        src="/brain_scan.png"
+                        alt="Sagittal MRI Slice"
+                        className="absolute inset-0 w-full h-full object-cover opacity-60 filter hue-rotate-180"
+                      />
+                      <svg className="absolute inset-0 w-full h-full text-primary/10 pointer-events-none" viewBox="0 0 100 100">
+                        <line x1="50" y1="5" x2="50" y2="95" stroke="currentColor" strokeWidth="0.1" strokeDasharray="1,2" />
+                        <line x1="5" y1="50" x2="95" y2="50" stroke="currentColor" strokeWidth="0.1" strokeDasharray="1,2" />
+                      </svg>
+
+                      {/* Dynamic Crosshairs linked to tumorY and sagittalSlice */}
+                      {activeScanParams.tumorY > 0 && (
+                        <>
+                          <div style={{ left: `${activeScanParams.tumorY}%` }} className="absolute top-0 bottom-0 w-px border-l border-amber-500/40 border-dashed pointer-events-none" />
+                          <div style={{ top: `${sagittalSlice}%` }} className="absolute left-0 right-0 h-px border-t border-amber-500/40 border-dashed pointer-events-none" />
+                          <div
+                            style={{
+                              position: 'absolute',
+                              left: `${activeScanParams.tumorY}%`,
+                              top: `${sagittalSlice}%`,
+                              transform: 'translate(-50%, -50%)',
+                              width: `10%`,
+                              height: `10%`,
+                              borderRadius: '50%',
+                              background: 'radial-gradient(circle, rgba(245,158,11,0.8) 0%, rgba(245,158,11,0) 70%)',
+                              opacity: mriOverlayOpacity / 100,
+                              pointerEvents: 'none'
+                            }}
+                          />
+                        </>
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <input
+                        type="range"
+                        min="1"
+                        max="80"
+                        value={sagittalSlice}
+                        onChange={(e) => setSagittalSlice(parseInt(e.target.value))}
+                        className="w-full h-1.5 bg-muted rounded appearance-none cursor-pointer accent-primary"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1426,15 +1610,37 @@ export default function DoctorDashboard({
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-muted-foreground mb-1 font-medium">Clinical Comments / Notes</label>
-                    <textarea
-                      placeholder="Add diagnostic comments..."
-                      rows={4}
-                      value={doctorComments}
-                      onChange={(e) => setDoctorComments(e.target.value)}
-                      className="w-full p-2 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                    />
+                  {/* Attestation & Digital Signature PIN (Task 2) */}
+                  <div className="border-t border-border/40 pt-4 space-y-3.5">
+                    <div className="flex items-start gap-2 bg-muted/30 border border-border/40 p-3 rounded-lg">
+                      <input
+                        type="checkbox"
+                        id="attested"
+                        checked={attested}
+                        onChange={(e) => setAttested(e.target.checked)}
+                        className="mt-0.5 rounded border-border text-primary focus:ring-primary cursor-pointer"
+                      />
+                      <label htmlFor="attested" className="text-[10px] text-muted-foreground leading-normal cursor-pointer select-none">
+                        I hereby attest that I have reviewed these axial, coronal, and sagittal MRI slices and confirm the target coordinates and diagnosis are anatomically accurate.
+                      </label>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+                      <div>
+                        <label className="block text-muted-foreground mb-1 font-medium">Attending Doctor Digital Signature (PIN / Name)</label>
+                        <input
+                          type="text"
+                          value={signaturePin}
+                          onChange={(e) => setSignaturePin(e.target.value)}
+                          placeholder="Enter your clinical name or PIN"
+                          className="w-full p-2 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                          required
+                        />
+                      </div>
+                      <div className="text-[9px] text-muted-foreground leading-normal">
+                        Signing this record will instantly compile and append a secure entry into the database **Audit Trail** (`/api/audit-logs`) in compliance with FDA and HIPAA Title II regulations.
+                      </div>
+                    </div>
                   </div>
                 </div>
 
