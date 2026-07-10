@@ -272,9 +272,13 @@ export default function DoctorDashboard({
   const [rxDosage, setRxDosage] = useState('')
   const [rxFrequency, setRxFrequency] = useState('')
   
-  const axialInputRef = useRef<HTMLInputElement>(null)
-  const coronalInputRef = useRef<HTMLInputElement>(null)
-  const sagittalInputRef = useRef<HTMLInputElement>(null)
+  const batchInputRef = useRef<HTMLInputElement>(null)
+
+  // Batch upload states
+  const [pendingFiles, setPendingFiles] = useState<{ name: string; base64: string }[]>([])
+  const [mappedAxialIdx, setMappedAxialIdx] = useState<number>(-1)
+  const [mappedCoronalIdx, setMappedCoronalIdx] = useState<number>(-1)
+  const [mappedSagittalIdx, setMappedSagittalIdx] = useState<number>(-1)
 
   // Filter patients down to only those handled by the active doctor
   const doctorPatients = patients.filter(p => 
@@ -474,75 +478,143 @@ export default function DoctorDashboard({
     img.src = base64Str
   }
 
-  const handleAxialUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0]
-      setUploadedFileName(file.name)
-      const reader = new FileReader()
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          const base64Str = event.target.result as string
-          setAxialImage(base64Str)
-          setCurrentScanImage(base64Str)
-          
-          // Run the heuristic pixel analysis on Axial view to detect tumor
-          detectTumorHeuristic(base64Str, (detectedX, detectedY, hasTumor, confidence) => {
-            if (hasTumor) {
-              runAIPipeline({
-                name: file.name,
-                tumorX: detectedX,
-                tumorY: detectedY,
-                tumorR: 14,
-                prediction: 'Tumor Detected',
-                confidence: confidence,
-                type: 'Malignant (Glioma)',
-                region: detectedX < 50 ? (detectedY < 50 ? 'Left Frontal Lobe' : 'Left Occipital Lobe') : (detectedY < 50 ? 'Right Frontal Lobe' : 'Right Occipital Lobe'),
-                stage: 'Stage II'
-              })
-            } else {
-              runAIPipeline({
-                name: file.name,
-                tumorX: 0,
-                tumorY: 0,
-                tumorR: 0,
-                prediction: 'No Abnormalities Detected',
-                confidence: confidence,
-                type: 'Normal Tissue',
-                region: 'None',
-                stage: 'N/A'
-              })
-            }
+
+
+  const guessPlanesMapping = (files: { name: string; base64: string }[]) => {
+    let axial = -1
+    let coronal = -1
+    let sagittal = -1
+
+    // Guess Axial
+    axial = files.findIndex(f => 
+      f.name.toLowerCase().includes('axial') || 
+      f.name.toLowerCase().includes('z-') || 
+      f.name.toLowerCase().includes('slice1') ||
+      f.name.toLowerCase().includes('scan_1')
+    )
+    // Guess Coronal
+    coronal = files.findIndex(f => 
+      f.name.toLowerCase().includes('coronal') || 
+      f.name.toLowerCase().includes('y-') || 
+      f.name.toLowerCase().includes('slice2') ||
+      f.name.toLowerCase().includes('scan_2')
+    )
+    // Guess Sagittal
+    sagittal = files.findIndex(f => 
+      f.name.toLowerCase().includes('sagittal') || 
+      f.name.toLowerCase().includes('x-') || 
+      f.name.toLowerCase().includes('slice3') ||
+      f.name.toLowerCase().includes('scan_3')
+    )
+
+    const availableIndices = [0, 1, 2].filter(i => i < files.length)
+    
+    if (axial === -1) {
+      const idx = availableIndices.find(i => i !== coronal && i !== sagittal)
+      if (idx !== undefined) axial = idx
+    }
+    if (coronal === -1) {
+      const idx = availableIndices.find(i => i !== axial && i !== sagittal)
+      if (idx !== undefined) coronal = idx
+    }
+    if (sagittal === -1) {
+      const idx = availableIndices.find(i => i !== axial && i !== coronal)
+      if (idx !== undefined) sagittal = idx
+    }
+
+    setMappedAxialIdx(axial)
+    setMappedCoronalIdx(coronal)
+    setMappedSagittalIdx(sagittal)
+  }
+
+  const handleBatchUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      await processUploadedFiles(e.target.files)
+    }
+  }
+
+  const processUploadedFiles = async (fileList: FileList) => {
+    const list = Array.from(fileList).slice(0, 3)
+    const loaded: { name: string; base64: string }[] = []
+    
+    for (const file of list) {
+      const base64 = await new Promise<string>((resolve) => {
+        const reader = new FileReader()
+        reader.onload = (event) => {
+          resolve(event.target?.result as string || '')
+        }
+        reader.readAsDataURL(file)
+      })
+      if (base64) {
+        loaded.push({ name: file.name, base64 })
+      }
+    }
+    
+    setPendingFiles(loaded)
+    guessPlanesMapping(loaded)
+  }
+
+  const executeBatchPipeline = () => {
+    if (pendingFiles.length === 0) return
+
+    const axialFile = pendingFiles[mappedAxialIdx]
+    const coronalFile = pendingFiles[mappedCoronalIdx]
+    const sagittalFile = pendingFiles[mappedSagittalIdx]
+
+    const axialBase64 = axialFile?.base64 || null
+    const coronalBase64 = coronalFile?.base64 || null
+    const sagittalBase64 = sagittalFile?.base64 || null
+
+    if (axialBase64) {
+      setAxialImage(axialBase64)
+      setCurrentScanImage(axialBase64)
+    } else {
+      setAxialImage(null)
+    }
+    if (coronalBase64) {
+      setCoronalImage(coronalBase64)
+    } else {
+      setCoronalImage(null)
+    }
+    if (sagittalBase64) {
+      setSagittalImage(sagittalBase64)
+    } else {
+      setSagittalImage(null)
+    }
+
+    setUploadedFileName(axialFile ? axialFile.name : (pendingFiles[0]?.name || 'Batch Upload'))
+
+    const detectionTarget = axialBase64 || coronalBase64 || sagittalBase64
+    if (detectionTarget) {
+      detectTumorHeuristic(detectionTarget, (detectedX, detectedY, hasTumor, confidence) => {
+        if (hasTumor) {
+          runAIPipeline({
+            name: axialFile?.name || 'Batch Scans',
+            tumorX: detectedX,
+            tumorY: detectedY,
+            tumorR: 14,
+            prediction: 'Tumor Detected',
+            confidence: confidence,
+            type: 'Malignant (Glioma)',
+            region: detectedX < 50 ? (detectedY < 50 ? 'Left Frontal Lobe' : 'Left Occipital Lobe') : (detectedY < 50 ? 'Right Frontal Lobe' : 'Right Occipital Lobe'),
+            stage: 'Stage II'
+          })
+        } else {
+          runAIPipeline({
+            name: axialFile?.name || 'Batch Scans',
+            tumorX: 0,
+            tumorY: 0,
+            tumorR: 0,
+            prediction: 'No Abnormalities Detected',
+            confidence: confidence,
+            type: 'Normal Tissue',
+            region: 'None',
+            stage: 'N/A'
           })
         }
-      }
-      reader.readAsDataURL(file)
+      })
     }
-  }
-
-  const handleCoronalUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0]
-      const reader = new FileReader()
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          setCoronalImage(event.target.result as string)
-        }
-      }
-      reader.readAsDataURL(file)
-    }
-  }
-
-  const handleSagittalUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0]
-      const reader = new FileReader()
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          setSagittalImage(event.target.result as string)
-        }
-      }
-      reader.readAsDataURL(file)
-    }
+    setPendingFiles([])
   }
 
   const handleSelectSample = (sample: typeof SAMPLE_SCANS[0]) => {
@@ -1444,62 +1516,107 @@ export default function DoctorDashboard({
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    {/* Axial Input Slot */}
+                  {pendingFiles.length === 0 ? (
                     <div
-                      onClick={() => axialInputRef.current?.click()}
-                      className="border border-dashed border-border/80 hover:border-primary/50 bg-muted/5 hover:bg-muted/10 rounded-lg p-3 text-center cursor-pointer transition-all flex flex-col items-center justify-center min-h-[90px]"
+                      onClick={() => batchInputRef.current?.click()}
+                      className="border border-dashed border-border/80 hover:border-primary/50 bg-muted/5 hover:bg-muted/10 rounded-lg p-5 text-center cursor-pointer transition-all flex flex-col items-center justify-center min-h-[140px]"
+                      onDragOver={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                      }}
+                      onDrop={async (e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        if (e.dataTransfer.files) {
+                          await processUploadedFiles(e.dataTransfer.files)
+                        }
+                      }}
                     >
-                      <UploadCloud className="w-5 h-5 text-muted-foreground mb-1" />
-                      <span className="text-[10px] font-bold text-foreground">1. Axial (Z-Axis)</span>
-                      <span className="text-[8px] text-muted-foreground mt-0.5">{axialImage ? 'Uploaded ✓' : 'Click to upload'}</span>
+                      <UploadCloud className="w-8 h-8 text-primary mb-2 animate-pulse" />
+                      <span className="text-xs font-bold text-foreground">Drag & drop 3 orthogonal scans at once</span>
+                      <span className="text-[10px] text-muted-foreground mt-1">Accepts Axial, Coronal, & Sagittal views (max 3 files)</span>
+                      <span className="text-[9px] text-primary/75 mt-2 underline font-semibold">or click to browse files</span>
                       <input
                         type="file"
-                        ref={axialInputRef}
-                        onChange={handleAxialUpload}
+                        ref={batchInputRef}
+                        onChange={handleBatchUpload}
                         className="hidden"
                         accept="image/*"
+                        multiple
                       />
                     </div>
+                  ) : (
+                    <div className="bg-muted/10 border border-border/60 rounded-lg p-4 space-y-3.5 animate-scale-in">
+                      <div className="flex justify-between items-center border-b border-border/40 pb-2">
+                        <span className="text-[11px] font-bold text-foreground uppercase tracking-wider">Loaded Slices Map</span>
+                        <button
+                          onClick={() => setPendingFiles([])}
+                          className="text-[10px] text-red-500 font-bold hover:underline"
+                        >
+                          Clear Selection
+                        </button>
+                      </div>
 
-                    {/* Coronal Input Slot */}
-                    <div
-                      onClick={() => coronalInputRef.current?.click()}
-                      className="border border-dashed border-border/80 hover:border-primary/50 bg-muted/5 hover:bg-muted/10 rounded-lg p-3 text-center cursor-pointer transition-all flex flex-col items-center justify-center min-h-[90px]"
-                    >
-                      <UploadCloud className="w-5 h-5 text-muted-foreground mb-1" />
-                      <span className="text-[10px] font-bold text-foreground">2. Coronal (Y-Axis)</span>
-                      <span className="text-[8px] text-muted-foreground mt-0.5">{coronalImage ? 'Uploaded ✓' : 'Click to upload'}</span>
-                      <input
-                        type="file"
-                        ref={coronalInputRef}
-                        onChange={handleCoronalUpload}
-                        className="hidden"
-                        accept="image/*"
-                      />
+                      <div className="space-y-2.5">
+                        {/* Axial Mapping */}
+                        <div className="grid grid-cols-3 gap-2 items-center text-xs">
+                          <span className="font-bold text-muted-foreground">Axial (Z-Axis):</span>
+                          <select
+                            value={mappedAxialIdx}
+                            onChange={(e) => setMappedAxialIdx(parseInt(e.target.value))}
+                            className="col-span-2 p-1.5 rounded border border-border bg-background text-foreground text-[11px] focus:outline-none focus:ring-1 focus:ring-primary"
+                          >
+                            <option value={-1}>-- Select Image --</option>
+                            {pendingFiles.map((f, idx) => (
+                              <option key={idx} value={idx}>{f.name}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Coronal Mapping */}
+                        <div className="grid grid-cols-3 gap-2 items-center text-xs">
+                          <span className="font-bold text-muted-foreground">Coronal (Y-Axis):</span>
+                          <select
+                            value={mappedCoronalIdx}
+                            onChange={(e) => setMappedCoronalIdx(parseInt(e.target.value))}
+                            className="col-span-2 p-1.5 rounded border border-border bg-background text-foreground text-[11px] focus:outline-none focus:ring-1 focus:ring-primary"
+                          >
+                            <option value={-1}>-- Select Image --</option>
+                            {pendingFiles.map((f, idx) => (
+                              <option key={idx} value={idx}>{f.name}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Sagittal Mapping */}
+                        <div className="grid grid-cols-3 gap-2 items-center text-xs">
+                          <span className="font-bold text-muted-foreground">Sagittal (X-Axis):</span>
+                          <select
+                            value={mappedSagittalIdx}
+                            onChange={(e) => setMappedSagittalIdx(parseInt(e.target.value))}
+                            className="col-span-2 p-1.5 rounded border border-border bg-background text-foreground text-[11px] focus:outline-none focus:ring-1 focus:ring-primary"
+                          >
+                            <option value={-1}>-- Select Image --</option>
+                            {pendingFiles.map((f, idx) => (
+                              <option key={idx} value={idx}>{f.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={executeBatchPipeline}
+                        className="w-full py-2 bg-primary hover:opacity-90 active:scale-95 text-primary-foreground font-bold rounded-lg text-xs transition flex items-center justify-center gap-1.5 shadow-sm"
+                      >
+                        <Check className="w-4 h-4" />
+                        Execute 3D Reconstruction Pipeline
+                      </button>
                     </div>
+                  )}
 
-                    {/* Sagittal Input Slot */}
-                    <div
-                      onClick={() => sagittalInputRef.current?.click()}
-                      className="border border-dashed border-border/80 hover:border-primary/50 bg-muted/5 hover:bg-muted/10 rounded-lg p-3 text-center cursor-pointer transition-all flex flex-col items-center justify-center min-h-[90px]"
-                    >
-                      <UploadCloud className="w-5 h-5 text-muted-foreground mb-1" />
-                      <span className="text-[10px] font-bold text-foreground">3. Sagittal (X-Axis)</span>
-                      <span className="text-[8px] text-muted-foreground mt-0.5">{sagittalImage ? 'Uploaded ✓' : 'Click to upload'}</span>
-                      <input
-                        type="file"
-                        ref={sagittalInputRef}
-                        onChange={handleSagittalUpload}
-                        className="hidden"
-                        accept="image/*"
-                      />
-                    </div>
-                  </div>
-
-                  {uploadedFileName && (
+                  {uploadedFileName && pendingFiles.length === 0 && (
                     <div className="flex items-center justify-between p-2.5 border border-border rounded-lg bg-background text-xs font-mono text-muted-foreground">
-                      <span>File: {uploadedFileName}</span>
+                      <span>Active File: {uploadedFileName}</span>
                       <Check className="w-4 h-4 text-emerald-500" />
                     </div>
                   )}
