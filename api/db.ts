@@ -1,4 +1,5 @@
-import admin from 'firebase-admin'
+import { initializeApp, cert, getApps } from 'firebase-admin/app'
+import { getFirestore, Firestore } from 'firebase-admin/firestore'
 
 const INITIAL_PATIENTS = [
   {
@@ -189,7 +190,7 @@ interface MemoryDb {
 let memoryDb: MemoryDb | null = null
 let hasSeeded = false
 
-export async function connectToDatabase(): Promise<{ db: admin.firestore.Firestore | null; isFallback: boolean }> {
+export async function connectToDatabase(): Promise<{ db: Firestore | null; isFallback: boolean }> {
   const serviceAccountVar = process.env.FIREBASE_SERVICE_ACCOUNT
 
   if (!serviceAccountVar) {
@@ -203,11 +204,11 @@ export async function connectToDatabase(): Promise<{ db: admin.firestore.Firesto
   }
 
   // Initialize Firebase Admin
-  if (admin.apps.length === 0) {
+  if (getApps().length === 0) {
     try {
       const serviceAccount = JSON.parse(serviceAccountVar)
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
+      initializeApp({
+        credential: cert(serviceAccount)
       })
     } catch (e) {
       console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT env var. Falling back to memory.', e)
@@ -221,7 +222,7 @@ export async function connectToDatabase(): Promise<{ db: admin.firestore.Firesto
     }
   }
 
-  const db = admin.firestore()
+  const db = getFirestore()
 
   // Seed Firebase collections once per serverless instance startup if collections are empty
   if (!hasSeeded) {

@@ -63,7 +63,7 @@ export default async function handler(req: any, res: any) {
         const safeList = list.map(({ password: _, ...rest }) => rest)
         return res.status(200).json(safeList)
       } else {
-        let collRef: admin.firestore.Query = db!.collection('patients')
+        let collRef: any = db!.collection('patients')
         if (doctor) {
           collRef = collRef.where('doctor.name', '==', doctor)
         }
