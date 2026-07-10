@@ -1591,12 +1591,20 @@ export default function DoctorDashboard({
                       onClick={handleImageClick}
                       className="relative aspect-square w-full bg-[#030303] rounded-lg border border-border overflow-hidden flex items-center justify-center cursor-crosshair"
                     >
-                      <img
-                        src={axialImage || currentScanImage || '/brain_scan.png'}
-                        alt="Axial MRI Slice"
-                        style={{ filter: qcnnFilter > 0 ? `contrast(${100 + qcnnFilter * 2.5}%) brightness(${100 - qcnnFilter * 0.2}%) grayscale(${qcnnFilter / 100})` : 'none' }}
-                        className="absolute inset-0 w-full h-full object-cover opacity-80"
-                      />
+                      {axialImage || (currentScanImage && currentScanImage !== '/brain_scan.png') ? (
+                        <img
+                          src={axialImage || currentScanImage!}
+                          alt="Axial MRI Slice"
+                          style={{ filter: qcnnFilter > 0 ? `contrast(${100 + qcnnFilter * 2.5}%) brightness(${100 - qcnnFilter * 0.2}%) grayscale(${qcnnFilter / 100})` : 'none' }}
+                          className="absolute inset-0 w-full h-full object-cover opacity-80"
+                        />
+                      ) : (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/85 border border-dashed border-border/50 p-4 text-center z-10 select-none">
+                          <Layers className="w-7 h-7 text-primary/20 mb-2 animate-pulse" />
+                          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Awaiting Axial Upload</span>
+                          <span className="text-[8px] text-muted-foreground mt-0.5 font-mono">Slot Z-Axis (Horizontal)</span>
+                        </div>
+                      )}
                       <svg className="absolute inset-0 w-full h-full text-primary/10 pointer-events-none" viewBox="0 0 100 100">
                         <circle cx="50" cy="50" r="42" fill="none" stroke="currentColor" strokeWidth="0.1" strokeDasharray="1,2" />
                         <line x1="50" y1="5" x2="50" y2="95" stroke="currentColor" strokeWidth="0.1" strokeDasharray="1,2" />
@@ -1647,12 +1655,20 @@ export default function DoctorDashboard({
                       onClick={handleCoronalClick}
                       className="relative aspect-square w-full bg-[#030303] rounded-lg border border-border overflow-hidden flex items-center justify-center cursor-crosshair"
                     >
-                      <img
-                        src={coronalImage || '/brain_scan.png'}
-                        alt="Coronal MRI Slice"
-                        style={{ filter: qcnnFilter > 0 ? `contrast(${100 + qcnnFilter * 2.5}%) brightness(${100 - qcnnFilter * 0.2}%) grayscale(${qcnnFilter / 100})` : 'none' }}
-                        className="absolute inset-0 w-full h-full object-cover opacity-60 filter hue-rotate-15"
-                      />
+                      {coronalImage ? (
+                        <img
+                          src={coronalImage}
+                          alt="Coronal MRI Slice"
+                          style={{ filter: qcnnFilter > 0 ? `contrast(${100 + qcnnFilter * 2.5}%) brightness(${100 - qcnnFilter * 0.2}%) grayscale(${qcnnFilter / 100})` : 'none' }}
+                          className="absolute inset-0 w-full h-full object-cover opacity-60 filter hue-rotate-15"
+                        />
+                      ) : (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/85 border border-dashed border-border/50 p-4 text-center z-10 select-none">
+                          <Layers className="w-7 h-7 text-primary/20 mb-2 animate-pulse" />
+                          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Awaiting Coronal Upload</span>
+                          <span className="text-[8px] text-muted-foreground mt-0.5 font-mono">Slot Y-Axis (Frontal)</span>
+                        </div>
+                      )}
                       <svg className="absolute inset-0 w-full h-full text-primary/10 pointer-events-none" viewBox="0 0 100 100">
                         <line x1="50" y1="5" x2="50" y2="95" stroke="currentColor" strokeWidth="0.1" strokeDasharray="1,2" />
                         <line x1="5" y1="50" x2="95" y2="50" stroke="currentColor" strokeWidth="0.1" strokeDasharray="1,2" />
@@ -1702,12 +1718,20 @@ export default function DoctorDashboard({
                       onClick={handleSagittalClick}
                       className="relative aspect-square w-full bg-[#030303] rounded-lg border border-border overflow-hidden flex items-center justify-center cursor-crosshair"
                     >
-                      <img
-                        src={sagittalImage || '/brain_scan.png'}
-                        alt="Sagittal MRI Slice"
-                        style={{ filter: qcnnFilter > 0 ? `contrast(${100 + qcnnFilter * 2.5}%) brightness(${100 - qcnnFilter * 0.2}%) grayscale(${qcnnFilter / 100})` : 'none' }}
-                        className="absolute inset-0 w-full h-full object-cover opacity-60 filter hue-rotate-180"
-                      />
+                      {sagittalImage ? (
+                        <img
+                          src={sagittalImage}
+                          alt="Sagittal MRI Slice"
+                          style={{ filter: qcnnFilter > 0 ? `contrast(${100 + qcnnFilter * 2.5}%) brightness(${100 - qcnnFilter * 0.2}%) grayscale(${qcnnFilter / 100})` : 'none' }}
+                          className="absolute inset-0 w-full h-full object-cover opacity-60 filter hue-rotate-180"
+                        />
+                      ) : (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/85 border border-dashed border-border/50 p-4 text-center z-10 select-none">
+                          <Layers className="w-7 h-7 text-primary/20 mb-2 animate-pulse" />
+                          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Awaiting Sagittal Upload</span>
+                          <span className="text-[8px] text-muted-foreground mt-0.5 font-mono">Slot X-Axis (Profile)</span>
+                        </div>
+                      )}
                       <svg className="absolute inset-0 w-full h-full text-primary/10 pointer-events-none" viewBox="0 0 100 100">
                         <line x1="50" y1="5" x2="50" y2="95" stroke="currentColor" strokeWidth="0.1" strokeDasharray="1,2" />
                         <line x1="5" y1="50" x2="95" y2="50" stroke="currentColor" strokeWidth="0.1" strokeDasharray="1,2" />
