@@ -273,12 +273,9 @@ export default function DoctorDashboard({
   const [rxFrequency, setRxFrequency] = useState('')
   
   const batchInputRef = useRef<HTMLInputElement>(null)
-
-  // Batch upload states
-  const [pendingFiles, setPendingFiles] = useState<{ name: string; base64: string }[]>([])
-  const [mappedAxialIdx, setMappedAxialIdx] = useState<number>(-1)
-  const [mappedCoronalIdx, setMappedCoronalIdx] = useState<number>(-1)
-  const [mappedSagittalIdx, setMappedSagittalIdx] = useState<number>(-1)
+  const slot1InputRef = useRef<HTMLInputElement>(null)
+  const slot2InputRef = useRef<HTMLInputElement>(null)
+  const slot3InputRef = useRef<HTMLInputElement>(null)
 
   // Filter patients down to only those handled by the active doctor
   const doctorPatients = patients.filter(p => 
@@ -486,221 +483,129 @@ export default function DoctorDashboard({
 
 
 
-  const guessPlanesMapping = (files: { name: string; base64: string }[]) => {
-    let axial = -1
-    let coronal = -1
-    let sagittal = -1
-
-    // Guess Axial
-    axial = files.findIndex(f => 
-      f.name.toLowerCase().includes('axial') || 
-      f.name.toLowerCase().includes('z-') || 
-      f.name.toLowerCase().includes('slice1') ||
-      f.name.toLowerCase().includes('scan_1')
-    )
-    // Guess Coronal
-    coronal = files.findIndex(f => 
-      f.name.toLowerCase().includes('coronal') || 
-      f.name.toLowerCase().includes('y-') || 
-      f.name.toLowerCase().includes('slice2') ||
-      f.name.toLowerCase().includes('scan_2')
-    )
-    // Guess Sagittal
-    sagittal = files.findIndex(f => 
-      f.name.toLowerCase().includes('sagittal') || 
-      f.name.toLowerCase().includes('x-') || 
-      f.name.toLowerCase().includes('slice3') ||
-      f.name.toLowerCase().includes('scan_3')
-    )
-
-    const availableIndices = [0, 1, 2].filter(i => i < files.length)
-    
-    if (axial === -1) {
-      const idx = availableIndices.find(i => i !== coronal && i !== sagittal)
-      if (idx !== undefined) axial = idx
-    }
-    if (coronal === -1) {
-      const idx = availableIndices.find(i => i !== axial && i !== sagittal)
-      if (idx !== undefined) coronal = idx
-    }
-    if (sagittal === -1) {
-      const idx = availableIndices.find(i => i !== axial && i !== coronal)
-      if (idx !== undefined) sagittal = idx
-    }
-
-    setMappedAxialIdx(axial)
-    setMappedCoronalIdx(coronal)
-    setMappedSagittalIdx(sagittal)
-  }
-
-  const handleBatchUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      await processUploadedFiles(e.target.files)
-    }
-  }
-
-  const classifyPlanesVisually = (loadedFiles: { name: string; base64: string; data: Uint8ClampedArray }[]) => {
-    if (loadedFiles.length < 3) return { axial: 0, coronal: 1, sagittal: 2 }
-
-    const scores = loadedFiles.map((file, idx) => {
-      const data = file.data
-      
-      // 1. Calculate left-right asymmetry
-      let diffSum = 0
-      let totalIntensity = 0
-      for (let y = 15; y < 85; y++) {
-        for (let x = 15; x < 50; x++) {
-          const idxLeft = (y * 100 + x) * 4
-          const idxRight = (y * 100 + (100 - x)) * 4
-          const valLeft = 0.299 * data[idxLeft] + 0.587 * data[idxLeft + 1] + 0.114 * data[idxLeft + 2]
-          const valRight = 0.299 * data[idxRight] + 0.587 * data[idxRight + 1] + 0.114 * data[idxRight + 2]
-          diffSum += Math.abs(valLeft - valRight)
-          totalIntensity += valLeft + valRight
-        }
+  const classifySinglePlane = (data: Uint8ClampedArray): 'axial' | 'coronal' | 'sagittal' => {
+    // 1. Calculate left-right asymmetry
+    let diffSum = 0
+    let totalIntensity = 0
+    for (let y = 15; y < 85; y++) {
+      for (let x = 15; x < 50; x++) {
+        const idxLeft = (y * 100 + x) * 4
+        const idxRight = (y * 100 + (100 - x)) * 4
+        const valLeft = 0.299 * data[idxLeft] + 0.587 * data[idxLeft + 1] + 0.114 * data[idxLeft + 2]
+        const valRight = 0.299 * data[idxRight] + 0.587 * data[idxRight + 1] + 0.114 * data[idxRight + 2]
+        diffSum += Math.abs(valLeft - valRight)
+        totalIntensity += valLeft + valRight
       }
-      const asymmetry = totalIntensity > 0 ? (diffSum / totalIntensity) : 0
-      
-      // 2. Calculate bottom stem extension (Coronal vs Axial)
-      // Coronal has neck/stem at bottom center, sides are empty/black
-      let centerBottom = 0
-      let sidesBottom = 0
-      for (let y = 75; y < 95; y++) {
-        for (let x = 45; x < 55; x++) {
-          const idx = (y * 100 + x) * 4
-          centerBottom += 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2]
-        }
-        for (let x = 15; x < 25; x++) {
-          const idxL = (y * 100 + x) * 4
-          const idxR = (y * 100 + (100 - x)) * 4
-          sidesBottom += 0.299 * data[idxL] + 0.587 * data[idxL + 1] + 0.114 * data[idxL + 2]
-          sidesBottom += 0.299 * data[idxR] + 0.587 * data[idxR + 1] + 0.114 * data[idxR + 2]
-        }
-      }
-      const stemScore = (sidesBottom + 1) / (centerBottom + 1) // Lower means center is much brighter than sides
-      
-      return { idx, asymmetry, stemScore }
-    })
-
-    // Sort by asymmetry descending to identify Sagittal (highest asymmetry)
-    const sortedByAsymmetry = [...scores].sort((a, b) => b.asymmetry - a.asymmetry)
-    const sagittalIdx = sortedByAsymmetry[0].idx
+    }
+    const asymmetry = totalIntensity > 0 ? (diffSum / totalIntensity) : 0
     
-    // The remaining two are Axial and Coronal
-    const remaining = scores.filter(s => s.idx !== sagittalIdx)
-    // The one with the lower stemScore (brighter center compared to corners) is Coronal
-    const sortedByStem = [...remaining].sort((a, b) => a.stemScore - b.stemScore)
-    const coronalIdx = sortedByStem[0].idx
-    const axialIdx = sortedByStem[1].idx
+    // Sagittal profile slices are highly asymmetrical left-to-right
+    if (asymmetry > 0.12) {
+      return 'sagittal'
+    }
 
-    return { axial: axialIdx, coronal: coronalIdx, sagittal: sagittalIdx }
+    // 2. Calculate bottom center stem ratio (Coronal vs Axial)
+    // Coronal slices show neck/brainstem at bottom center, sides are empty/black
+    let centerBottom = 0
+    let sidesBottom = 0
+    for (let y = 75; y < 95; y++) {
+      for (let x = 45; x < 55; x++) {
+        const idx = (y * 100 + x) * 4
+        centerBottom += 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2]
+      }
+      for (let x = 15; x < 25; x++) {
+        const idxL = (y * 100 + x) * 4
+        const idxR = (y * 100 + (100 - x)) * 4
+        sidesBottom += 0.299 * data[idxL] + 0.587 * data[idxL + 1] + 0.114 * data[idxL + 2]
+        sidesBottom += 0.299 * data[idxR] + 0.587 * data[idxR + 1] + 0.114 * data[idxR + 2]
+      }
+    }
+    
+    const stemRatio = (centerBottom + 1) / (sidesBottom + 1)
+    if (stemRatio > 3.0) {
+      return 'coronal'
+    }
+    
+    return 'axial'
   }
 
-  const processUploadedFiles = async (fileList: FileList) => {
-    const list = Array.from(fileList).slice(0, 3)
-    const loaded: { name: string; base64: string; data: Uint8ClampedArray }[] = []
+  const processSingleOrMultipleFiles = async (files: FileList | File[]) => {
+    const list = Array.from(files)
     
     for (const file of list) {
-      const result = await new Promise<{ base64: string; data: Uint8ClampedArray }>((resolve) => {
+      const base64 = await new Promise<string>((resolve) => {
         const reader = new FileReader()
         reader.onload = (event) => {
-          const base64 = event.target?.result as string || ''
-          const img = new Image()
-          img.onload = () => {
-            const canvas = document.createElement('canvas')
-            canvas.width = 100
-            canvas.height = 100
-            const ctx = canvas.getContext('2d')
-            if (ctx) {
-              ctx.drawImage(img, 0, 0, 100, 100)
-              const imgData = ctx.getImageData(0, 0, 100, 100)
-              resolve({ base64, data: imgData.data })
-            } else {
-              resolve({ base64, data: new Uint8ClampedArray(40000) })
-            }
-          }
-          img.src = base64
+          resolve(event.target?.result as string || '')
         }
         reader.readAsDataURL(file)
       })
-      if (result.base64) {
-        loaded.push({ name: file.name, base64: result.base64, data: result.data })
+      
+      if (!base64) continue
+      
+      // Extract pixel data and run our visual plane classifier
+      const plane = await new Promise<'axial' | 'coronal' | 'sagittal'>((resolve) => {
+        const img = new Image()
+        img.onload = () => {
+          const canvas = document.createElement('canvas')
+          canvas.width = 100
+          canvas.height = 100
+          const ctx = canvas.getContext('2d')
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, 100, 100)
+            const imgData = ctx.getImageData(0, 0, 100, 100)
+            resolve(classifySinglePlane(imgData.data))
+          } else {
+            resolve('axial')
+          }
+        }
+        img.src = base64
+      })
+
+      setPipelineLogs(prev => [
+        ...prev,
+        `[AI Auto-Router] "${file.name}" visually matched as ${plane.toUpperCase()} view.`
+      ])
+
+      if (plane === 'axial') {
+        setAxialImage(base64)
+        setCurrentScanImage(base64)
+        setUploadedFileName(file.name)
+        
+        // Run tumor detection heuristic on the Axial view
+        detectTumorHeuristic(base64, (detectedX, detectedY, hasTumor, confidence) => {
+          if (hasTumor) {
+            runAIPipeline({
+              name: file.name,
+              tumorX: detectedX,
+              tumorY: detectedY,
+              tumorR: 14,
+              prediction: 'Tumor Detected',
+              confidence: confidence,
+              type: 'Malignant (Glioma)',
+              region: detectedX < 50 ? (detectedY < 50 ? 'Left Frontal Lobe' : 'Left Occipital Lobe') : (detectedY < 50 ? 'Right Frontal Lobe' : 'Right Occipital Lobe'),
+              stage: 'Stage II'
+            })
+          } else {
+            runAIPipeline({
+              name: file.name,
+              tumorX: 0,
+              tumorY: 0,
+              tumorR: 0,
+              prediction: 'No Abnormalities Detected',
+              confidence: confidence,
+              type: 'Normal Tissue',
+              region: 'None',
+              stage: 'N/A'
+            })
+          }
+        })
+      } else if (plane === 'coronal') {
+        setCoronalImage(base64)
+      } else {
+        setSagittalImage(base64)
       }
     }
-    
-    setPendingFiles(loaded.map(item => ({ name: item.name, base64: item.base64 })))
-    
-    // Visually auto-classify planes if exactly 3 files are uploaded
-    if (loaded.length === 3) {
-      const mapping = classifyPlanesVisually(loaded)
-      setMappedAxialIdx(mapping.axial)
-      setMappedCoronalIdx(mapping.coronal)
-      setMappedSagittalIdx(mapping.sagittal)
-    } else {
-      guessPlanesMapping(loaded)
-    }
-  }
-
-  const executeBatchPipeline = () => {
-    if (pendingFiles.length === 0) return
-
-    const axialFile = pendingFiles[mappedAxialIdx]
-    const coronalFile = pendingFiles[mappedCoronalIdx]
-    const sagittalFile = pendingFiles[mappedSagittalIdx]
-
-    const axialBase64 = axialFile?.base64 || null
-    const coronalBase64 = coronalFile?.base64 || null
-    const sagittalBase64 = sagittalFile?.base64 || null
-
-    if (axialBase64) {
-      setAxialImage(axialBase64)
-      setCurrentScanImage(axialBase64)
-    } else {
-      setAxialImage(null)
-    }
-    if (coronalBase64) {
-      setCoronalImage(coronalBase64)
-    } else {
-      setCoronalImage(null)
-    }
-    if (sagittalBase64) {
-      setSagittalImage(sagittalBase64)
-    } else {
-      setSagittalImage(null)
-    }
-
-    setUploadedFileName(axialFile ? axialFile.name : (pendingFiles[0]?.name || 'Batch Upload'))
-
-    const detectionTarget = axialBase64 || coronalBase64 || sagittalBase64
-    if (detectionTarget) {
-      detectTumorHeuristic(detectionTarget, (detectedX, detectedY, hasTumor, confidence) => {
-        if (hasTumor) {
-          runAIPipeline({
-            name: axialFile?.name || 'Batch Scans',
-            tumorX: detectedX,
-            tumorY: detectedY,
-            tumorR: 14,
-            prediction: 'Tumor Detected',
-            confidence: confidence,
-            type: 'Malignant (Glioma)',
-            region: detectedX < 50 ? (detectedY < 50 ? 'Left Frontal Lobe' : 'Left Occipital Lobe') : (detectedY < 50 ? 'Right Frontal Lobe' : 'Right Occipital Lobe'),
-            stage: 'Stage II'
-          })
-        } else {
-          runAIPipeline({
-            name: axialFile?.name || 'Batch Scans',
-            tumorX: 0,
-            tumorY: 0,
-            tumorR: 0,
-            prediction: 'No Abnormalities Detected',
-            confidence: confidence,
-            type: 'Normal Tissue',
-            region: 'None',
-            stage: 'N/A'
-          })
-        }
-      })
-    }
-    setPendingFiles([])
   }
 
   const handleSelectSample = (sample: typeof SAMPLE_SCANS[0]) => {
@@ -1602,107 +1507,104 @@ export default function DoctorDashboard({
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="space-y-4">
-                  {pendingFiles.length === 0 ? (
+                  {/* Unified Drag & Drop Batch Zone */}
+                  <div
+                    onClick={() => batchInputRef.current?.click()}
+                    className="border border-dashed border-border/80 hover:border-primary/50 bg-muted/5 hover:bg-muted/10 rounded-lg p-4 text-center cursor-pointer transition-all flex flex-col items-center justify-center min-h-[90px]"
+                    onDragOver={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                    }}
+                    onDrop={async (e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      if (e.dataTransfer.files) {
+                        await processSingleOrMultipleFiles(e.dataTransfer.files)
+                      }
+                    }}
+                  >
+                    <UploadCloud className="w-6 h-6 text-primary mb-1 animate-pulse" />
+                    <span className="text-xs font-bold text-foreground">Batch Upload Dropzone</span>
+                    <span className="text-[9px] text-muted-foreground mt-0.5">Drag & drop up to 3 slices at once, or click to browse</span>
+                    <input
+                      type="file"
+                      ref={batchInputRef}
+                      onChange={(e) => e.target.files && processSingleOrMultipleFiles(e.target.files)}
+                      className="hidden"
+                      accept="image/*"
+                      multiple
+                    />
+                  </div>
+
+                  {/* Individual Slot Uploads (One-by-one slots with auto-sorting) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {/* Slot 1: Axial */}
                     <div
-                      onClick={() => batchInputRef.current?.click()}
-                      className="border border-dashed border-border/80 hover:border-primary/50 bg-muted/5 hover:bg-muted/10 rounded-lg p-5 text-center cursor-pointer transition-all flex flex-col items-center justify-center min-h-[140px]"
-                      onDragOver={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                      }}
-                      onDrop={async (e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        if (e.dataTransfer.files) {
-                          await processUploadedFiles(e.dataTransfer.files)
-                        }
-                      }}
+                      onClick={() => slot1InputRef.current?.click()}
+                      className={`border border-dashed rounded-lg p-2.5 text-center cursor-pointer transition-all flex flex-col items-center justify-center min-h-[85px] ${
+                        axialImage ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-border/80 hover:border-primary/50 bg-muted/5 hover:bg-muted/10'
+                      }`}
                     >
-                      <UploadCloud className="w-8 h-8 text-primary mb-2 animate-pulse" />
-                      <span className="text-xs font-bold text-foreground">Drag & drop 3 orthogonal scans at once</span>
-                      <span className="text-[10px] text-muted-foreground mt-1">Accepts Axial, Coronal, & Sagittal views (max 3 files)</span>
-                      <span className="text-[9px] text-primary/75 mt-2 underline font-semibold">or click to browse files</span>
+                      <UploadCloud className="w-4 h-4 text-muted-foreground mb-1" />
+                      <span className="text-[10px] font-bold text-foreground">Slot 1: Axial View</span>
+                      <span className="text-[8px] text-muted-foreground mt-0.5 truncate max-w-full font-mono">
+                        {axialImage ? 'Axial Active ✓' : 'Click to upload'}
+                      </span>
                       <input
                         type="file"
-                        ref={batchInputRef}
-                        onChange={handleBatchUpload}
+                        ref={slot1InputRef}
+                        onChange={(e) => e.target.files && processSingleOrMultipleFiles(e.target.files)}
                         className="hidden"
                         accept="image/*"
-                        multiple
                       />
                     </div>
-                  ) : (
-                    <div className="bg-muted/10 border border-border/60 rounded-lg p-4 space-y-3.5 animate-scale-in">
-                      <div className="flex justify-between items-center border-b border-border/40 pb-2">
-                        <span className="text-[11px] font-bold text-foreground uppercase tracking-wider">Loaded Slices Map</span>
-                        <button
-                          onClick={() => setPendingFiles([])}
-                          className="text-[10px] text-red-500 font-bold hover:underline"
-                        >
-                          Clear Selection
-                        </button>
-                      </div>
 
-                      <div className="space-y-2.5">
-                        {/* Axial Mapping */}
-                        <div className="grid grid-cols-3 gap-2 items-center text-xs">
-                          <span className="font-bold text-muted-foreground">Axial (Z-Axis):</span>
-                          <select
-                            value={mappedAxialIdx}
-                            onChange={(e) => setMappedAxialIdx(parseInt(e.target.value))}
-                            className="col-span-2 p-1.5 rounded border border-border bg-background text-foreground text-[11px] focus:outline-none focus:ring-1 focus:ring-primary"
-                          >
-                            <option value={-1}>-- Select Image --</option>
-                            {pendingFiles.map((f, idx) => (
-                              <option key={idx} value={idx}>{f.name}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* Coronal Mapping */}
-                        <div className="grid grid-cols-3 gap-2 items-center text-xs">
-                          <span className="font-bold text-muted-foreground">Coronal (Y-Axis):</span>
-                          <select
-                            value={mappedCoronalIdx}
-                            onChange={(e) => setMappedCoronalIdx(parseInt(e.target.value))}
-                            className="col-span-2 p-1.5 rounded border border-border bg-background text-foreground text-[11px] focus:outline-none focus:ring-1 focus:ring-primary"
-                          >
-                            <option value={-1}>-- Select Image --</option>
-                            {pendingFiles.map((f, idx) => (
-                              <option key={idx} value={idx}>{f.name}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* Sagittal Mapping */}
-                        <div className="grid grid-cols-3 gap-2 items-center text-xs">
-                          <span className="font-bold text-muted-foreground">Sagittal (X-Axis):</span>
-                          <select
-                            value={mappedSagittalIdx}
-                            onChange={(e) => setMappedSagittalIdx(parseInt(e.target.value))}
-                            className="col-span-2 p-1.5 rounded border border-border bg-background text-foreground text-[11px] focus:outline-none focus:ring-1 focus:ring-primary"
-                          >
-                            <option value={-1}>-- Select Image --</option>
-                            {pendingFiles.map((f, idx) => (
-                              <option key={idx} value={idx}>{f.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-
-                      <button
-                        onClick={executeBatchPipeline}
-                        className="w-full py-2 bg-primary hover:opacity-90 active:scale-95 text-primary-foreground font-bold rounded-lg text-xs transition flex items-center justify-center gap-1.5 shadow-sm"
-                      >
-                        <Check className="w-4 h-4" />
-                        Execute 3D Reconstruction Pipeline
-                      </button>
+                    {/* Slot 2: Coronal */}
+                    <div
+                      onClick={() => slot2InputRef.current?.click()}
+                      className={`border border-dashed rounded-lg p-2.5 text-center cursor-pointer transition-all flex flex-col items-center justify-center min-h-[85px] ${
+                        coronalImage ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-border/80 hover:border-primary/50 bg-muted/5 hover:bg-muted/10'
+                      }`}
+                    >
+                      <UploadCloud className="w-4 h-4 text-muted-foreground mb-1" />
+                      <span className="text-[10px] font-bold text-foreground">Slot 2: Coronal View</span>
+                      <span className="text-[8px] text-muted-foreground mt-0.5 truncate max-w-full font-mono">
+                        {coronalImage ? 'Coronal Active ✓' : 'Click to upload'}
+                      </span>
+                      <input
+                        type="file"
+                        ref={slot2InputRef}
+                        onChange={(e) => e.target.files && processSingleOrMultipleFiles(e.target.files)}
+                        className="hidden"
+                        accept="image/*"
+                      />
                     </div>
-                  )}
 
-                  {uploadedFileName && pendingFiles.length === 0 && (
+                    {/* Slot 3: Sagittal */}
+                    <div
+                      onClick={() => slot3InputRef.current?.click()}
+                      className={`border border-dashed rounded-lg p-2.5 text-center cursor-pointer transition-all flex flex-col items-center justify-center min-h-[85px] ${
+                        sagittalImage ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-border/80 hover:border-primary/50 bg-muted/5 hover:bg-muted/10'
+                      }`}
+                    >
+                      <UploadCloud className="w-4 h-4 text-muted-foreground mb-1" />
+                      <span className="text-[10px] font-bold text-foreground">Slot 3: Sagittal View</span>
+                      <span className="text-[8px] text-muted-foreground mt-0.5 truncate max-w-full font-mono">
+                        {sagittalImage ? 'Sagittal Active ✓' : 'Click to upload'}
+                      </span>
+                      <input
+                        type="file"
+                        ref={slot3InputRef}
+                        onChange={(e) => e.target.files && processSingleOrMultipleFiles(e.target.files)}
+                        className="hidden"
+                        accept="image/*"
+                      />
+                    </div>
+                  </div>
+
+                  {uploadedFileName && (
                     <div className="flex items-center justify-between p-2.5 border border-border rounded-lg bg-background text-xs font-mono text-muted-foreground">
-                      <span>Active File: {uploadedFileName}</span>
+                      <span>Active Sequence: {uploadedFileName}</span>
                       <Check className="w-4 h-4 text-emerald-500" />
                     </div>
                   )}
