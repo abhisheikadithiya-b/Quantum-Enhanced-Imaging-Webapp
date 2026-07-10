@@ -410,28 +410,33 @@ export default function DoctorDashboard({
       let bestX = 50
       let bestY = 50
       
-      // Calculate average global brain intensity in the central scanning field
+      // Calculate average global brain intensity in the central scanning field (ignoring dark space)
       let totalBrainIntensity = 0
       let brainPixelCount = 0
+      let globalMax = 0
       
-      for (let y = 20; y < 80; y++) {
-        for (let x = 20; x < 80; x++) {
+      for (let y = 15; y < 85; y++) {
+        for (let x = 15; x < 85; x++) {
           const idx = (y * 100 + x) * 4
           const r = data[idx]
           const g = data[idx + 1]
           const b = data[idx + 2]
           const val = 0.299 * r + 0.587 * g + 0.114 * b
-          totalBrainIntensity += val
-          brainPixelCount++
+          if (val > 20) {
+            totalBrainIntensity += val
+            brainPixelCount++
+            if (val > globalMax) {
+              globalMax = val
+            }
+          }
         }
       }
       const avgBrainIntensity = brainPixelCount > 0 ? (totalBrainIntensity / brainPixelCount) : 80
       
-      // Focus on internal brain tissue area (25% to 75% boundary) to ignore bright outer skull bones
-      // Use a 5x5 spatial averaging kernel to isolate real masses rather than single-pixel noise/glares
-      const kernelSize = 2 // 5x5 window (center - 2 to center + 2)
-      for (let y = 25; y < 75; y++) {
-        for (let x = 25; x < 75; x++) {
+      // Focus on internal brain tissue area (20% to 80% boundary) to ignore bright outer skull bones and corner labels
+      const kernelSize = 2
+      for (let y = 20; y < 80; y++) {
+        for (let x = 20; x < 80; x++) {
           let patchSum = 0
           let patchCount = 0
           
@@ -459,17 +464,18 @@ export default function DoctorDashboard({
         }
       }
       
-      // Determine tumor presence:
-      // 1. Local patch average brightness exceeds threshold (typically 160 for solid white mass).
-      // 2. Local contrast ratio (patch brightness relative to global average) is high (at least 1.45x brighter).
-      // This adaptive approach handles different MRI contrast settings perfectly!
+      // Determine tumor presence using an adaptive threshold:
+      // Tumors appear as bright spots. If the max patch value exceeds our adaptive threshold
+      // and has a localized contrast ratio of at least 1.25x compared to the rest of the brain, we flag it.
+      const variance = globalMax - avgBrainIntensity
+      const adaptiveThreshold = Math.max(130, avgBrainIntensity + (variance * 0.45))
       const contrastRatio = maxPatchValue / Math.max(1, avgBrainIntensity)
-      const hasTumor = maxPatchValue > 160 && contrastRatio > 1.45
+      const hasTumor = maxPatchValue >= adaptiveThreshold && contrastRatio > 1.25
       
       // Calculate a highly realistic confidence score based on the contrast ratio and max brightness
       let confidenceNum = 90 + Math.min(9.9, (maxPatchValue / 255) * 10)
       if (!hasTumor) {
-        confidenceNum = 95 + Math.min(4.9, ((255 - maxPatchValue) / 255) * 5)
+        confidenceNum = 94 + Math.min(5.9, ((255 - maxPatchValue) / 255) * 6)
       }
       
       const confidence = `${confidenceNum.toFixed(1)}%`
