@@ -1,5 +1,5 @@
-import { connectToDatabase, getMemoryDb } from '../db'
-import { getAuthorizedUser, verifyPassword } from '../security'
+import { connectToDatabase, getMemoryDb } from '../db.js'
+import { getAuthorizedUser, verifyPassword } from '../security.js'
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {

@@ -1,5 +1,5 @@
-import { connectToDatabase, getMemoryDb } from '../db'
-import { getAuthorizedUser, hashPassword } from '../security'
+import { connectToDatabase, getMemoryDb } from '../db.js'
+import { getAuthorizedUser, hashPassword } from '../security.js'
 
 export default async function handler(req: any, res: any) {
   const { method } = req
