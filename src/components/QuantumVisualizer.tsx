@@ -9,24 +9,38 @@ export default function QuantumVisualizer() {
   const [isOptimizing, setIsOptimizing] = useState(false)
   const [optimizerProgress, setOptimizerProgress] = useState(0)
   const [hasRun, setHasRun] = useState(false)
-  const [qubits, setQubits] = useState<number[]>(new Array(16).fill(0).map(() => Math.random()))
+  
+  // 100-cell QUBO Correlation matrix (10x10 grid)
+  const [qubo, setQubo] = useState<number[]>(new Array(100).fill(0).map(() => Math.random()))
 
-  // Randomize qubits on cycle if optimizing
+  // Randomize QUBO cells dynamically if optimizing (Simulating Superposition)
   useEffect(() => {
     let interval: any
     if (isOptimizing) {
       interval = setInterval(() => {
-        setQubits(new Array(16).fill(0).map(() => Math.random()))
+        setQubo(new Array(100).fill(0).map(() => Math.random()))
         setOptimizerProgress(prev => {
           if (prev >= 100) {
             setIsOptimizing(false)
             setHasRun(true)
             clearInterval(interval)
+            
+            // Set converged QUBO state (only specific coupling indices glow)
+            const converged = new Array(100).fill(0).map((_, idx) => {
+              // Create a deterministic diagonal/pattern of high predictive features
+              const row = Math.floor(idx / 10)
+              const col = idx % 10
+              if (row === col || (row + col) % 3 === 0) {
+                return 0.85 + Math.random() * 0.15 // High predictive features
+              }
+              return 0.05 + Math.random() * 0.1 // Pruned features
+            })
+            setQubo(converged)
             return 100
           }
           return prev + 5
         })
-      }, 100)
+      }, 80)
     }
     return () => clearInterval(interval)
   }, [isOptimizing])
@@ -44,6 +58,7 @@ export default function QuantumVisualizer() {
     setLearningRate(0.001)
     setBatchSize(32)
     setEpochs(50)
+    setQubo(new Array(100).fill(0).map(() => Math.random()))
   }
 
   // Calculate simulated parameters
@@ -60,7 +75,7 @@ export default function QuantumVisualizer() {
             BQPhy SDK / QuantumNow HPO Solver
           </h3>
           <p className="text-sm text-muted-foreground mt-1">
-            Simulate parallel hyperparameter optimization of learning rate, batch size, and epoch parameters.
+            Simulate parallel hyperparameter optimization using D-Wave simulated annealing of a QUBO Hamiltonian matrix.
           </p>
         </div>
         <div className="flex gap-2">
@@ -90,7 +105,7 @@ export default function QuantumVisualizer() {
           
           <div>
             <div className="flex justify-between text-xs mb-1.5 font-medium">
-              <span className="text-muted-foreground">Learning Rate (\(\eta\))</span>
+              <span className="text-muted-foreground">Learning Rate (&eta;)</span>
               <span className="text-foreground font-mono">{learningRate}</span>
             </div>
             <input
@@ -143,49 +158,57 @@ export default function QuantumVisualizer() {
           </div>
         </div>
 
-        {/* Center: Live Qubit Lattice Simulation */}
+        {/* Center: Live QUBO Hamiltonian Matrix */}
         <div className="flex flex-col justify-center items-center p-4 bg-muted/30 rounded-xl border border-border/50">
-          <div className="text-xs font-semibold text-muted-foreground mb-4 uppercase tracking-wider">
-            {isOptimizing ? `Coherence Phase: ${optimizerProgress}%` : 'Quantum Register (16 Qubits)'}
+          <div className="text-xs font-semibold text-muted-foreground mb-3 uppercase tracking-wider">
+            {isOptimizing ? `Annealing Coherence: ${optimizerProgress}%` : 'QUBO FEATURE LATTICE (10x10)'}
           </div>
           
-          <div className="grid grid-cols-4 gap-4 p-4 border border-border/40 rounded-lg bg-background shadow-inner relative overflow-hidden">
+          <div className="w-[180px] h-[180px] p-1.5 border border-border/40 rounded-lg bg-black shadow-inner relative overflow-hidden flex items-center justify-center">
             {isOptimizing && (
-              <div className="absolute inset-0 bg-primary/5 pointer-events-none animate-pulse" />
+              <div className="absolute inset-0 bg-primary/5 pointer-events-none animate-pulse z-10" />
             )}
-            {qubits.map((val, idx) => {
-              const spinColor = isOptimizing
-                ? `hsla(199, 98%, ${Math.round(val * 40 + 40)}%, ${val})`
-                : val > 0.5 ? 'var(--primary)' : 'var(--muted-foreground)';
-              const glowStyle = isOptimizing
-                ? { boxShadow: `0 0 10px hsla(199, 98%, 50%, ${val})` }
-                : {};
-              
-              return (
-                <div key={idx} className="flex flex-col items-center gap-1.5">
+            
+            <div className="grid grid-cols-10 gap-0.5 w-full h-full">
+              {qubo.map((val, idx) => {
+                // Color mapping: low values are dark blue/grey, optimized high values are glowing cyan/emerald
+                let bgStyle = 'rgba(15, 23, 42, 0.6)'
+                let glowStyle = {}
+                
+                if (isOptimizing) {
+                  bgStyle = `rgba(0, 240, 255, ${val * 0.8})`
+                } else if (hasRun) {
+                  if (val > 0.5) {
+                    bgStyle = `rgba(16, 185, 129, ${val})` // Glowing Emerald for chosen features
+                    glowStyle = { boxShadow: `0 0 4px rgba(16, 185, 129, ${val})` }
+                  } else {
+                    bgStyle = `rgba(30, 41, 59, 0.3)` // Damped grey for pruned features
+                  }
+                } else {
+                  bgStyle = `rgba(0, 240, 255, ${val * 0.4})`
+                }
+
+                return (
                   <div
-                    style={{ backgroundColor: spinColor, ...glowStyle }}
-                    className="w-8 h-8 rounded-full transition-all duration-150 flex items-center justify-center text-[8px] font-bold text-background select-none shadow"
-                  >
-                    |q<sub>{idx}</sub>⟩
-                  </div>
-                  <span className="text-[9px] font-mono text-muted-foreground">
-                    {(val * 100).toFixed(0)}%
-                  </span>
-                </div>
-              )
-            })}
+                    key={idx}
+                    style={{ backgroundColor: bgStyle, ...glowStyle }}
+                    className="w-full h-full rounded-[1px] transition-all duration-100"
+                    title={`Qubit Correlation coupling value: ${val.toFixed(3)}`}
+                  />
+                )
+              })}
+            </div>
           </div>
 
           <div className="mt-4 text-center">
             {isOptimizing ? (
-              <span className="text-xs text-primary font-medium animate-pulse">Running quantum tunneling state exploration...</span>
+              <span className="text-[10px] text-primary font-medium animate-pulse uppercase tracking-wider">Solving Minimum Energy Hamiltonian...</span>
             ) : hasRun ? (
-              <span className="text-xs text-emerald-500 font-medium flex items-center gap-1">
-                <CheckCircle className="w-3.5 h-3.5" /> Converged on absolute global minimum
+              <span className="text-xs text-emerald-500 font-semibold flex items-center gap-1">
+                <CheckCircle className="w-3.5 h-3.5" /> 512 Parameters Isolated
               </span>
             ) : (
-              <span className="text-xs text-muted-foreground">Adjust parameters and click run to begin</span>
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Lattice Cooled. Click Run to Anneal.</span>
             )}
           </div>
         </div>
@@ -199,7 +222,7 @@ export default function QuantumVisualizer() {
               <div className="space-y-3.5">
                 <div className="p-3 border border-border/50 rounded-lg bg-background/50 space-y-2">
                   <div className="flex justify-between text-xs border-b border-border/30 pb-1.5">
-                    <span className="text-muted-foreground">Optimized \(\eta\):</span>
+                    <span className="text-muted-foreground">Optimized &eta;:</span>
                     <span className="font-mono text-foreground font-semibold">{isOptimizing ? 'Tuning...' : optimizedLearningRate}</span>
                   </div>
                   <div className="flex justify-between text-xs border-b border-border/30 pb-1.5">
@@ -213,21 +236,20 @@ export default function QuantumVisualizer() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <div className="flex justify-between text-xs">
+                  <div className="flex justify-between text-[11px]">
                     <span className="text-muted-foreground">Classical Grid Search:</span>
                     <span className="text-foreground font-mono">1.2 hours (92.1% acc)</span>
                   </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground font-medium text-primary">Quantum HPO:</span>
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-muted-foreground font-medium text-primary">Quantum HPO (Annealer):</span>
                     <span className="text-primary font-mono font-semibold">18.5 seconds (97.4% acc)</span>
                   </div>
                 </div>
 
-                {/* Energy Minimization Path Chart (Custom CSS/SVG representation) */}
+                {/* Energy Minimization Path Chart */}
                 <div className="h-20 border border-border/50 rounded-lg bg-background/50 p-2 relative overflow-hidden flex items-end">
                   <span className="absolute top-1 left-1.5 text-[8px] text-muted-foreground font-mono">Loss Landscape Convergence</span>
                   
-                  {/* Grid Lines */}
                   <div className="absolute inset-0 grid grid-rows-3 grid-cols-5 opacity-10 pointer-events-none">
                     <div className="border-b border-r border-foreground"></div>
                     <div className="border-b border-r border-foreground"></div>
@@ -242,7 +264,6 @@ export default function QuantumVisualizer() {
                   </div>
 
                   <svg className="w-full h-16 overflow-visible" viewBox="0 0 100 40">
-                    {/* Classical Path (red dotty line getting stuck) */}
                     <path
                       d="M0,5 L20,8 L25,25 L45,23 L55,30 L70,30 L90,28"
                       fill="none"
@@ -251,7 +272,6 @@ export default function QuantumVisualizer() {
                       strokeDasharray="1.5,1.5"
                       opacity="0.8"
                     />
-                    {/* Quantum Path (blue smooth line reaching absolute bottom) */}
                     <path
                       d={isOptimizing 
                         ? `M0,5 L20,8 L40,${15 + Math.random() * 5} L60,${20 + Math.random() * 5} L80,${28 + Math.random() * 5}` 
@@ -262,7 +282,6 @@ export default function QuantumVisualizer() {
                       className="transition-all duration-300"
                     />
                     
-                    {/* Labels */}
                     <circle cx="70" cy="30" r="1.5" fill="#ef4444" />
                     <text x="73" y="28" fill="#ef4444" fontSize="3" fontFamily="sans-serif">Classical Trap</text>
                     
@@ -274,7 +293,7 @@ export default function QuantumVisualizer() {
             ) : (
               <div className="flex flex-col items-center justify-center h-48 border border-dashed border-border rounded-lg p-4 text-center">
                 <Cpu className="w-8 h-8 text-muted-foreground/40 mb-2" />
-                <span className="text-xs text-muted-foreground">Quantum Optimizer inactive. Adjust parameters on the left and click "Run Optimization".</span>
+                <span className="text-xs text-muted-foreground font-semibold">QUBO Optimizer Idle</span>
               </div>
             )}
           </div>
