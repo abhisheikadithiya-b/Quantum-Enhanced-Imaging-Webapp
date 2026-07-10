@@ -539,25 +539,105 @@ export default function DoctorDashboard({
     }
   }
 
+  const classifyPlanesVisually = (loadedFiles: { name: string; base64: string; data: Uint8ClampedArray }[]) => {
+    if (loadedFiles.length < 3) return { axial: 0, coronal: 1, sagittal: 2 }
+
+    const scores = loadedFiles.map((file, idx) => {
+      const data = file.data
+      
+      // 1. Calculate left-right asymmetry
+      let diffSum = 0
+      let totalIntensity = 0
+      for (let y = 15; y < 85; y++) {
+        for (let x = 15; x < 50; x++) {
+          const idxLeft = (y * 100 + x) * 4
+          const idxRight = (y * 100 + (100 - x)) * 4
+          const valLeft = 0.299 * data[idxLeft] + 0.587 * data[idxLeft + 1] + 0.114 * data[idxLeft + 2]
+          const valRight = 0.299 * data[idxRight] + 0.587 * data[idxRight + 1] + 0.114 * data[idxRight + 2]
+          diffSum += Math.abs(valLeft - valRight)
+          totalIntensity += valLeft + valRight
+        }
+      }
+      const asymmetry = totalIntensity > 0 ? (diffSum / totalIntensity) : 0
+      
+      // 2. Calculate bottom stem extension (Coronal vs Axial)
+      // Coronal has neck/stem at bottom center, sides are empty/black
+      let centerBottom = 0
+      let sidesBottom = 0
+      for (let y = 75; y < 95; y++) {
+        for (let x = 45; x < 55; x++) {
+          const idx = (y * 100 + x) * 4
+          centerBottom += 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2]
+        }
+        for (let x = 15; x < 25; x++) {
+          const idxL = (y * 100 + x) * 4
+          const idxR = (y * 100 + (100 - x)) * 4
+          sidesBottom += 0.299 * data[idxL] + 0.587 * data[idxL + 1] + 0.114 * data[idxL + 2]
+          sidesBottom += 0.299 * data[idxR] + 0.587 * data[idxR + 1] + 0.114 * data[idxR + 2]
+        }
+      }
+      const stemScore = (sidesBottom + 1) / (centerBottom + 1) // Lower means center is much brighter than sides
+      
+      return { idx, asymmetry, stemScore }
+    })
+
+    // Sort by asymmetry descending to identify Sagittal (highest asymmetry)
+    const sortedByAsymmetry = [...scores].sort((a, b) => b.asymmetry - a.asymmetry)
+    const sagittalIdx = sortedByAsymmetry[0].idx
+    
+    // The remaining two are Axial and Coronal
+    const remaining = scores.filter(s => s.idx !== sagittalIdx)
+    // The one with the lower stemScore (brighter center compared to corners) is Coronal
+    const sortedByStem = [...remaining].sort((a, b) => a.stemScore - b.stemScore)
+    const coronalIdx = sortedByStem[0].idx
+    const axialIdx = sortedByStem[1].idx
+
+    return { axial: axialIdx, coronal: coronalIdx, sagittal: sagittalIdx }
+  }
+
   const processUploadedFiles = async (fileList: FileList) => {
     const list = Array.from(fileList).slice(0, 3)
-    const loaded: { name: string; base64: string }[] = []
+    const loaded: { name: string; base64: string; data: Uint8ClampedArray }[] = []
     
     for (const file of list) {
-      const base64 = await new Promise<string>((resolve) => {
+      const result = await new Promise<{ base64: string; data: Uint8ClampedArray }>((resolve) => {
         const reader = new FileReader()
         reader.onload = (event) => {
-          resolve(event.target?.result as string || '')
+          const base64 = event.target?.result as string || ''
+          const img = new Image()
+          img.onload = () => {
+            const canvas = document.createElement('canvas')
+            canvas.width = 100
+            canvas.height = 100
+            const ctx = canvas.getContext('2d')
+            if (ctx) {
+              ctx.drawImage(img, 0, 0, 100, 100)
+              const imgData = ctx.getImageData(0, 0, 100, 100)
+              resolve({ base64, data: imgData.data })
+            } else {
+              resolve({ base64, data: new Uint8ClampedArray(40000) })
+            }
+          }
+          img.src = base64
         }
         reader.readAsDataURL(file)
       })
-      if (base64) {
-        loaded.push({ name: file.name, base64 })
+      if (result.base64) {
+        loaded.push({ name: file.name, base64: result.base64, data: result.data })
       }
     }
     
-    setPendingFiles(loaded)
-    guessPlanesMapping(loaded)
+    setPendingFiles(loaded.map(item => ({ name: item.name, base64: item.base64 })))
+    
+    // Visually auto-classify planes if exactly 3 files are uploaded
+    if (loaded.length === 3) {
+      const mapping = classifyPlanesVisually(loaded)
+      setMappedAxialIdx(mapping.axial)
+      setMappedCoronalIdx(mapping.coronal)
+      setMappedSagittalIdx(mapping.sagittal)
+    } else {
+      guessPlanesMapping(loaded)
+    }
   }
 
   const executeBatchPipeline = () => {
